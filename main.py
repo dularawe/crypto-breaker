@@ -9,10 +9,8 @@ import os
 
 class BreakoutScanner:
     def __init__(self):
-        # Hardcoded credentials
         self.bot = Bot(token="7532851212:AAHOVx1esNWrtk2SJbBQHCXMae7Y-dKJR5o")
-        self.client = Client("jU1j7eGK0QJayDX3WwaVcFHOuJfUO3MFU5J9ppfT6DiUslaAkwJrC6mf9lCXBVyU",
-                             "aTQtuh5bFKsGxC3bJOPbL7IV4KC1DsQowxgbrO6awi4YbnfCp3BRU55SA58jhRXy")
+        self.client = Client("jU1j7eGK0QJayDX3WwaVcFHOuJfUO3MFU5J9ppfT6DiUslaAkwJrC6mf9lCXBVyU", "aTQtuh5bFKsGxC3bJOPbL7IV4KC1DsQowxgbrO6awi4YbnfCp3BRU55SA58jhRXy")
         self.chat_id = "7771111812"
 
         self.symbols = [
@@ -67,12 +65,11 @@ class BreakoutScanner:
 
         self.timeframes = {
             "15m": Client.KLINE_INTERVAL_15MINUTE,
-            "1h": Client.KLINE_INTERVAL_1HOUR,
-            "4h": Client.KLINE_INTERVAL_4HOUR
+            "1h": Client.KLINE_INTERVAL_1HOUR
         }
 
         self.settings = {
-            "lookback": 200,
+            "lookback": 1000,
             "min_volume_ratio": 2.5,
             "price_change_threshold": 0.04,
             "rsi_range": (55, 75),
@@ -143,56 +140,38 @@ class BreakoutScanner:
         else:
             return df.index[-1] + timedelta(hours=4 * estimated_candles)
 
-    def detect_breakout_signal(self, df, symbol, timeframe):
-        if df is None or len(df) < 50:
+    def detect_big_entry_now(self, df, symbol, timeframe):
+        if df is None or len(df) < 100:
             return None
+
         last = df.iloc[-1]
-        prev = df.iloc[-2]
-        price_change = (last['close'] - prev['close']) / prev['close']
-        volume_ratio = last['volume'] / df['Volume_MA20'].iloc[-1]
-        candle_body = (last['close'] - last['open']) / last['open']
-        atr_ratio = last['ATR'] / last['close']
-        conditions_met = all([
-            price_change >= self.settings["price_change_threshold"],
-            volume_ratio >= self.settings["min_volume_ratio"],
-            candle_body >= self.settings["min_candle_body"],
-            last['close'] > last['Resistance'],
-            self.settings["rsi_range"][0] < last['RSI'] < self.settings["rsi_range"][1],
-            last['close'] > last['MA20'] > last['MA50'],
-            atr_ratio > 0.015
-        ])
-        if not conditions_met:
-            return None
-        entry = last['close']
-        sl = max(last['Support'] * 0.99, entry - (last['ATR'] * self.settings["atr_multiplier"]))
-        risk = entry - sl
-        tp1 = entry + risk * 1.618
-        profit, valid = self.calculate_profit(entry, tp1)
-        if not valid:
-            return None
-        exit_time = self.estimate_exit_time(df, entry, tp1, timeframe)
-        if not exit_time:
-            exit_time = last.name + timedelta(hours=2)
-        direction = "BUY" if candle_body > 0 else "SELL"
-        confidence = round(min(100, 25 * (price_change / self.settings["price_change_threshold"]) +
-                                  20 * (volume_ratio / self.settings["min_volume_ratio"]) +
-                                  20 * (candle_body / self.settings["min_candle_body"]) +
-                                  15 * (last['RSI'] / 70) +
-                                  10 * (atr_ratio / 0.02) +
-                                  10 * ((last['close'] - last['Resistance']) / last['Resistance'] * 100)), 2)
-        signal = {
-            'symbol': symbol,
-            'timeframe': timeframe,
-            'entry': round(entry, 5),
-            'sl': round(sl, 5),
-            'tp1': round(tp1, 5),
-            'confidence': confidence,
-            'profit': profit,
-            'exit_time': exit_time.strftime('%Y-%m-%d %H:%M:%S'),
-            'direction': direction
-        }
-        self.log_to_csv(signal)
-        return signal
+        prev_5_avg = df['close'].iloc[-6:-1].mean()
+        price_spike = (last['close'] - prev_5_avg) / prev_5_avg
+        volume_spike = last['volume'] / df['Volume_MA20'].iloc[-1]
+
+        if price_spike > 0.05 and volume_spike > 2:
+            entry_price = last['close']
+            sl = df['low'].iloc[-10:-1].min()
+            tp = entry_price + (entry_price - sl) * 2
+            exit_time = self.estimate_exit_time(df, entry_price, tp, timeframe)
+
+            signal = {
+                'symbol': symbol,
+                'timeframe': timeframe,
+                'entry': round(entry_price, 5),
+                'sl': round(sl, 5),
+                'tp1': round(tp, 5),
+                'profit': round((tp - entry_price) * self.settings["leverage"], 2),
+                'confidence': round(price_spike * 100, 2),
+                'exit_time': exit_time.strftime('%Y-%m-%d %H:%M:%S') if exit_time else "N/A",
+                'direction': "BUY"
+            }
+
+            self.send_alert(signal)
+            self.log_to_csv(signal)
+            print(f"🔥 BIG ENTRY ALERT for {symbol} on {timeframe}")
+            return signal
+        return None
 
     def log_to_csv(self, signal):
         with open(self.csv_file, mode='a', newline='') as file:
@@ -214,17 +193,15 @@ Exit Estimate: {signal['exit_time']}
         self.bot.send_message(chat_id=self.chat_id, text=message)
 
     def scan_markets(self):
-        print("Starting Breakout Scanner...")
+        print("🚀 Starting Breakout + Big Entry Scanner...")
         while True:
-            print(f"\nScanning at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"\n🕒 Scanning at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             for symbol in self.symbols:
                 for tf_name, tf_value in self.timeframes.items():
                     try:
                         df = self.fetch_market_data(symbol, tf_value)
                         df = self.calculate_technical_indicators(df)
-                        signal = self.detect_breakout_signal(df, symbol, tf_name)
-                        if signal:
-                            self.send_alert(signal)
+                        self.detect_big_entry_now(df, symbol, tf_name)
                     except Exception as e:
                         print(f"Error processing {symbol} {tf_name}: {str(e)}")
             time.sleep(60)
