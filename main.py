@@ -148,30 +148,34 @@ class BreakoutScanner:
         prev_5_avg = df['close'].iloc[-6:-1].mean()
         price_spike = (last['close'] - prev_5_avg) / prev_5_avg
         volume_spike = last['volume'] / df['Volume_MA20'].iloc[-1]
+        rsi_ok = 60 <= last['RSI'] <= 80
 
-        if price_spike > 0.05 and volume_spike > 2:
+        if price_spike > 0.07 and volume_spike > 3 and rsi_ok:
             entry_price = last['close']
             sl = df['low'].iloc[-10:-1].min()
             tp = entry_price + (entry_price - sl) * 2
             exit_time = self.estimate_exit_time(df, entry_price, tp, timeframe)
 
-            signal = {
-                'symbol': symbol,
-                'timeframe': timeframe,
-                'entry': round(entry_price, 5),
-                'sl': round(sl, 5),
-                'tp1': round(tp, 5),
-                'profit': round((tp - entry_price) * self.settings["leverage"], 2),
-                'confidence': round(price_spike * 100, 2),
-                'exit_time': exit_time.strftime('%Y-%m-%d %H:%M:%S') if exit_time else "N/A",
-                'direction': "BUY"
-            }
+            # Ensure estimated exit time is at least 4 hours ahead
+            if exit_time and (exit_time - df.index[-1]).total_seconds() >= 4 * 3600:
+                signal = {
+                    'symbol': symbol,
+                    'timeframe': timeframe,
+                    'entry': round(entry_price, 5),
+                    'sl': round(sl, 5),
+                    'tp1': round(tp, 5),
+                    'profit': round((tp - entry_price) * self.settings["leverage"], 2),
+                    'confidence': round(price_spike * 100, 2),
+                    'exit_time': exit_time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'direction': "BUY"
+                }
 
-            self.send_alert(signal)
-            self.log_to_csv(signal)
-            print(f"🔥 BIG ENTRY ALERT for {symbol} on {timeframe}")
-            return signal
+                self.send_alert(signal)
+                self.log_to_csv(signal)
+                print(f"✅ STRONG BUY BREAKPOINT for {symbol} on {timeframe}")
+                return signal
         return None
+
 
     def log_to_csv(self, signal):
         with open(self.csv_file, mode='a', newline='') as file:
