@@ -1,215 +1,564 @@
-import time
 import pandas as pd
-import pandas_ta as ta
+import time
+import requests
+import logging
 from binance.client import Client
+from ta.trend import EMAIndicator
+from ta.momentum import RSIIndicator
+from ta.volume import VolumeWeightedAveragePrice
 from datetime import datetime, timedelta
-from telegram import Bot
-import csv
-import os
 
-class BreakoutScanner:
-    def __init__(self):
-        self.bot = Bot(token="7532851212:AAHOVx1esNWrtk2SJbBQHCXMae7Y-dKJR5o")
-        self.client = Client("jU1j7eGK0QJayDX3WwaVcFHOuJfUO3MFU5J9ppfT6DiUslaAkwJrC6mf9lCXBVyU", "aTQtuh5bFKsGxC3bJOPbL7IV4KC1DsQowxgbrO6awi4YbnfCp3BRU55SA58jhRXy")
-        self.chat_id = "7771111812"
+# === Configuration ===
+TELEGRAM_TOKEN = '7532851212:AAHOVx1esNWrtk2SJbBQHCXMae7Y-dKJR5o'
+CHAT_ID = '7771111812'
+TIMEFRAME = '1h'
+INTERVAL_MINUTES = 15
+MAX_RETRIES = 5
+BASE_RECONNECT_DELAY = 1
+SYMBOL_REFRESH_HOURS = 6
 
-        self.symbols = [
-    "PEPEUSDT",     "HUMAUSDT",     "SUIUSDT",     "WIFUSDT",     "UNIUSDT",
-    "ENAUSDT",     "ANIMEUSDT",     "AAVEUSDT",     "VIRTUALUSDT",     "RVNUSDT",
-    "NEIROUSDT",     "UMAUSDT",     "WLDUSDT",     "TRUMPUSDT",     "TAOUSDT",
-    "AXLUSDT",     "KAIAUSDT",     "PNUTUSDT",     "ETHFIUSDT",     "ICPUSDT",
-    "FETUSDT",     "TONUSDT",     "TRBUSDT",     "HMSTRUSDT",     "LPTUSDT",
-    "PENGUUSDT",     "COMPUSDT",     "CRVUSDT",     "EIGENUSDT",     "BONKUSDT",
-    "OPUSDT",     "SUSDT",     "NEARUSDT",     "ARBUSDT",     "COOKIEUSDT",
-    "FLOKIUSDT",     "AIXBTUSDT",     "CAKEUSDT",     "HBARUSDT",     "TIAUSDT",
-    "RAYUSDT",     "DEXEUSDT",     "APTUSDT",     "PENDLEUSDT",     "LDOUSDT",
-    "MKRUSDT",     "NXPCUSDT",     "RENDERUSDT",     "MUBARAKUSDT",     "KAITOUSDT",
-    "XLMUSDT",     "INITUSDT",     "WBTCUSDT",     "WCTUSDT",     "INJUSDT",
-    "SEIUSDT",     "RUNEUSDT",     "ONDOUSDT",     "GALAUSDT",     "FILUSDT",
-    "AUSDT",     "ETCUSDT",     "SOPHUSDT",     "ORDIUSDT",     "ZROUSDT",
-    "ARKMUSDT",     "TURBOUSDT",     "ZENUSDT",     "CETUSUSDT",     "TUTUSDT",
-    "GUNUSDT",     "VETUSDT",     "GPSUSDT",     "APEUSDT",     "PEOPLEUSDT",
-    "ENSUSDT",     "OMUSDT",     "DYDXUSDT",     "MOVEUSDT",     "BOMEUSDT",
-    "SHELLUSDT",     "WUSDT",     "1000SATSUSDT",     "BERAUSDT",     "ATOMUSDT",
-    "LQTYUSDT",     "ACMUSDT",     "ALGOUSDT",     "SANDUSDT",     "API3USDT",
-    "VANAUSDT",     "KDAUSDT",     "POLUSDT",     "SSVUSDT",     "ARUSDT",
-    "RPLUSDT",     "SAGAUSDT",     "IOSTUSDT",     "ICXUSDT",     "GRTUSDT",
-    "QNTUSDT",     "AXSUSDT",     "NEOUSDT",     "CHESSUSDT",     "JASMYUSDT",
-    "BELUSDT",     "RADUSDT",     "IOUSDT",     "STXUSDT",     "IMXUSDT",
-    "STRKUSDT",     "SXTUSDT",     "CFXUSDT",     "MEMEUSDT",     "ACTUSDT",
-    "GMTUSDT",     "SUSHIUSDT",     "ZKUSDT",     "VOXELUSDT",     "NOTUSDT",
-    "USUALUSDT",     "THETAUSDT",     "TSTUSDT",     "BIOUSDT",     "GMXUSDT",
-    "LISTAUSDT",     "RSRUSDT",     "NILUSDT",     "THEUSDT",     "MOVRUSDT",
-    "DEGOUSDT",     "TUSDT",     "CVCUSDT",     "LUNCUSDT",     "WBETHUSDT",
-    "ACHUSDT",     "FUNUSDT",     "PYTHUSDT",     "MANTAUSDT",     "EGLDUSDT",
-    "ZRXUSDT",     "LAYERUSDT",     "BANANAUSDT",     "HFTUSDT",     "JTOUSDT",
-    "1MBABYDOGEUSDT",     "COWUSDT",     "MINAUSDT",     "XAIUSDT",     "DOGSUSDT",
-    "ORCAUSDT",     "ROSEUSDT",     "PIXELUSDT",     "MEUSDT",     "METISUSDT",
-    "BEAMXUSDT",     "FIDAUSDT",     "SLPUSDT",     "JOEUSDT",     "CGPTUSDT",
-    "KAVAUSDT",     "RAREUSDT",     "HAEDALUSDT",     "HIGHUSDT",     "CHZUSDT",
-    "LRCUSDT",     "SCRUSDT",     "REZUSDT",     "VANRYUSDT",     "AIUSDT",
-    "ZECUSDT",     "BROCCOLI714USDT",     "KERNELUSDT",     "XTZUSDT",     "PHAUSDT",
-    "MANAUSDT",     "IOTAUSDT",     "SOLVUSDT",     "LUNAUSDT",     "CELOUSDT",
-    "SIGNUSDT",     "1000CATUSDT",     "RONINUSDT",     "SLFUSDT",     "SNXUSDT",
-    "AEVOUSDT",     "PARTIUSDT",     "BNSOLUSDT",     "IOTXUSDT",     "PUNDIXUSDT",
-    "XVGUSDT",     "BBUSDT",     "GLMRUSDT",     "1INCHUSDT",     "AWEUSDT",
-    "BABYUSDT",     "AMPUSDT",     "HYPERUSDT",     "CHRUSDT",     "LUMIAUSDT",
-    "BLURUSDT",     "BICOUSDT",     "CVXUSDT",     "STOUSDT",     "QTUMUSDT",
-    "ONGUSDT",     "CKBUSDT",     "DASHUSDT",     "USTCUSDT",     "YFIUSDT",
-    "ONEUSDT",     "ALTUSDT",     "BSWUSDT",     "COTIUSDT",     "ACXUSDT",
-    "CYBERUSDT",     "FLOWUSDT",     "OGUSDT",     "ATMUSDT",     "FTTUSDT",
-    "AGLDUSDT",     "ENJUSDT",     "AUCTIONUSDT",     "OMNIUSDT",     "STORJUSDT",
-    "HOTUSDT",     "OGNUSDT",     "YGGUSDT",     "PORTALUSDT",     "ZILUSDT",
-    "BAKEUSDT",     "ALPHAUSDT",     "RLCUSDT",     "EDUUSDT",     "PYRUSDT",
-    "PHBUSDT",     "OSMOUSDT",     "C98USDT", ]
+DEFAULT_SYMBOLS =  [
+    "LAUSDT",       
+    "ONDOUSDT",     
+    "FETUSDT",      
+    "UMAUSDT",
+    "TONUSDT",
+    "1000BONKUSDT",
+    "SOPHUSDT",
+    "POPCATUSDT",
+    "SKATEUSDT",
+    "NXPCUSDT",
+    "PEOPLEUSDT",
+    "ICPUSDT",
+    "BIDUSDT",
+    "XLMUSDT",
+    "AI16ZUSDT",
+    "AIXBTUSDT",
+    "OMUSDT",
+    "1000FLOKIUSDT",
+    "ICXUSDT",
+    "KAITOUSDT",
+    "APTUSDT",
+    "ORDIUSDT",
+    "COOKIEUSDT",
+    "GALAUSDT",
+    "HBARUSDT",
+    "SSVUSDT",
+    "LQTYUSDT",
+    "DEXEUSDT",
+    "DYDXUSDT",
+    "PENDLEUSDT",
+    "GOATUSDT",
+    "CAKEUSDT",
+    "BUSDT",
+    "MOVEUSDT",
+    "BOMEUSDT",
+    "SUSHIUSDT",
+    "SUSDT",
+    "USUALUSDT",
+    "AXSUSDT",
+    "SEIUSDT",
+    "ATOMUSDT",
+    "RENDERUSDT",
+    "MUBARAKUSDT",
+    "ZROUSDT",
+    "APEUSDT",
+    "TURBOUSDT",
+    "FLMUSDT",
+    "EPTUSDT",
+    "RAYSOLUSDT",
+    "CHILLGUYUSDT",
+    "ZENUSDT",
+    "VVVUSDT",
+    "HMSTRUSDT",
+    "1000000MOGUSDT",
+    "KMNOUSDT",
+    "SANDUSDT",
+    "MOVRUSDT",
+    "BRETTUSDT",
+    "GRASSUSDT",
+    "ARKMUSDT",
+    "ALGOUSDT",
+    "FIDAUSDT",
+    "POLUSDT",
+    "LAYERUSDT",
+    "GRIFFAINUSDT",
+    "LISTAUSDT",
+    "STRKUSDT",
+    "IOSTUSDT",
+    "SOONUSDT",
+    "XMRUSDT",
+    "KAVAUSDT",
+    "SXTUSDT",
+    "RUNEUSDT",
+    "STXUSDT",
+    "IMXUSDT",
+    "COWUSDT",
+    "BERAUSDT",
+    "ARCUSDT",
+    "ARUSDT",
+    "VETUSDT",
+    "XAIUSDT",
+    "PUMPUSDT",
+    "WUSDT",
+    "PYTHUSDT",
+    "VANAUSDT",
+    "NOTUSDT",
+    "FXSUSDT",
+    "CETUSUSDT",
+    "ZEREBROUSDT",
+    "SOLVUSDT",
+    "1000SATSUSDT",
+    "ALTUSDT",
+    "MEMEUSDT",
+    "HAEDALUSDT",
+    "ZKUSDT",
+    "DOGSUSDT",
+    "SHELLUSDT",
+    "MEWUSDT",
+    "MEUSDT",
+    "KASUSDT",
+    "AEROUSDT",
+    "SWARMSUSDT",
+    "B2USDT",
+    "NEOUSDT",
+    "GRTUSDT",
+    "THETAUSDT",
+    "AVAAIUSDT",
+    "SNXUSDT",
+    "KERNELUSDT",
+    "BDXNUSDT",
+    "XTZUSDT",
+    "REZUSDT",
+    "NEIROETHUSDT",
+    "PARTIUSDT",
+    "BABYUSDT",
+    "SIRENUSDT",
+    "IOUSDT",
+    "VINEUSDT",
+    "ACTUSDT",
+    "NILUSDT",
+    "CYBERUSDT",
+    "GUNUSDT",
+    "BANANAUSDT",
+    "CVCUSDT",
+    "SXPUSDT",
+    "MELANIAUSDT",
+    "FUNUSDT",
+    "GPSUSDT",
+    "PONKEUSDT",
+    "MANAUSDT",
+    "SAGAUSDT",
+    "JELLYJELLYUSDT",
+    "TSTUSDT",
+    "JASMYUSDT",
+    "BMTUSDT",
+    "FORMUSDT",
+    "QNTUSDT",
+    "GMXUSDT",
+    "GMTUSDT",
+    "MINAUSDT",
+    "BIOUSDT",
+    "MANTAUSDT",
+    "ALCHUSDT",
+    "SIGNUSDT",
+    "FLOWUSDT",
+    "AERGOUSDT",
+    "DEEPUSDT",
+    "ROSEUSDT",
+    "CFXUSDT",
+    "ZRXUSDT",
+    "PLUMEUSDT",
+    "CHZUSDT",
+    "TUSDT",
+    "ACHUSDT",
+    "CHESSUSDT",
+    "PROMPTUSDT",
+    "1INCHUSDT",
+    "TUTUSDT",
+    "AGLDUSDT",
+    "IOTAUSDT",
+    "CELOUSDT",
+    "RSRUSDT",
+    "PORTALUSDT",
+    "ORCAUSDT",
+    "PIXELUSDT",
+    "DEGOUSDT",
+    "MERLUSDT",
+    "1MBABYDOGEUSDT",
+    "BANANAS31USDT",
+    "WALUSDT",
+    "STOUSDT",
+    "EPICUSDT",
+    "IPUSDT",
+    "HYPERUSDT",
+    "MAGICUSDT",
+    "MOCAUSDT",
+    "BLURUSDT",
+    "AEVOUSDT",
+    "DRIFTUSDT",
+    "VANRYUSDT",
+    "PIPPINUSDT",
+    "BBUSDT",
+    "API3USDT",
+    "USDCUSDT",
+    "BSVUSDT",
+    "SUPERUSDT",
+    "AUCTIONUSDT",
+    "1000LUNCUSDT",
+    "DEGENUSDT",
+    "ZILUSDT",
+    "BIGTIMEUSDT",
+    "EGLDUSDT",
+    "ZECUSDT",
+    "BROCCOLIF3BUSDT",
+    "RAREUSDT",
+    "IOTXUSDT",
+    "ONEUSDT",
+    "HIPPOUSDT",
+    "RLCUSDT",
+    "ALICEUSDT",
+    "MORPHOUSDT",
+    "KSMUSDT",
+    "CATIUSDT",
+    "ALPHAUSDT",
+    "LRCUSDT",
+    "BROCCOLI714USDT",
+    "THEUSDT",
+    "CGPTUSDT",
+    "STORJUSDT",
+    "SCRUSDT",
+    "AIUSDT",
+    "NMRUSDT",
+    "AGTUSDT",
+    "ATHUSDT",
+    "GASUSDT",
+    "METISUSDT",
+    "SKYAIUSDT",
+    "1000RATSUSDT",
+    "ENJUSDT",
+    "PORT3USDT",
+    "VOXELUSDT",
+    "PUFFERUSDT",
+    "BAKEUSDT",
+    "QTUMUSDT",
+    "XCNUSDT",
+    "DOLOUSDT",
+    "COTIUSDT",
+    "DYMUSDT",
+    "HIGHUSDT",
+    "1000CATUSDT",
+    "KDAUSDT",
+    "LUNA2USDT",
+    "OMNIUSDT",
+    "C98USDT",
+    "YGGUSDT",
+    "SWELLUSDT",
+    "WOOUSDT",
+    "BELUSDT",
+    "UXLINKUSDT",
+    "DASHUSDT",
+    "ASTRUSDT",
+    "AKTUSDT",
+    "EDUUSDT",
+    "ZETAUSDT",
+    "BEAMXUSDT",
+    "HOTUSDT",
+    "ONTUSDT",
+    "OGNUSDT",
+    "HOOKUSDT",
+    "JOEUSDT",
+    "PUNDIXUSDT",
+    "FHEUSDT",
+    "IDUSDT",
+    "1000CHEEMSUSDT",
+    "ANKRUSDT",
+    "LUMIAUSDT",
+    "PHBUSDT",
+    "SONICUSDT",
+    "XVGUSDT",
+    "HIVEUSDT",
+    "REDUSDT",
+    "MYROUSDT",
+    "CELRUSDT",
+    "ATAUSDT",
+    "REIUSDT",
+    "SPELLUSDT",
+    "HIFIUSDT",
+    "SAFEUSDT",
+    "HFTUSDT",
+    "BICOUSDT",
+    "CKBUSDT",
+    "OBOLUSDT",
+    "CHRUSDT",
+    "SKLUSDT",
+    "DFUSDT",
+    "STGUSDT",
+    "MAVUSDT",
+    "NFPUSDT",
+    "ACXUSDT",
+    "AVAUSDT",
+    "PHAUSDT",
+    "DOODUSDT",
+    "1000XUSDT",
+    "AIOTUSDT",
+    "BATUSDT",
+    "GTCUSDT",
+    "1000XECUSDT",
+    "RDNTUSDT",
+    "NKNUSDT",
+    "KNCUSDT",
+    "ALPINEUSDT",
+    "LEVERUSDT",
+    "PERPUSDT",
+    "BANDUSDT",
+    "SYNUSDT",
+    "TRUUSDT",
+    "AWEUSDT",
+    "SUNUSDT",
+    "ETHWUSDT",
+    "BSWUSDT",
+    "DENTUSDT",
+    "JSTUSDT",
+    "RONINUSDT",
+    "GLMUSDT",
+    "FISUSDT",
+    "MEMEFIUSDT",
+    "TOKENUSDT",
+    "B3USDT",
+    "LOKAUSDT",
+    "ARKUSDT",
+    "ACEUSDT",
+    "MILKUSDT",
+    "POLYXUSDT",
+    "TNSRUSDT",
+    "VTHOUSDT",
+    "TWTUSDT",
+    "MLNUSDT",
+    "RIFUSDT",
+    "HEIUSDT",
+    "TLMUSDT",
+    "ZKJUSDT",
+    "CTSIUSDT",
+    "KOMAUSDT",
+    "ARPAUSDT",
+    "WAXPUSDT",
+    "ASRUSDT",
+    "LSKUSDT",
+    "USTCUSDT",
+    "OXTUSDT",
+    "SFPUSDT",
+    "MBOXUSDT",
+    "ILVUSDT",
+    "BANKUSDT",
+    "OGUSDT",
+    "VELODROMEUSDT",
+    "NTRNUSDT",
+    "GUSDT",
+    "DUSKUSDT",
+    "PROMUSDT",
+    "MTLUSDT",
+    "POWRUSDT",
+    "FLUXUSDT",
+    "BNTUSDT",
+    "DIAUSDT",
+    "XVSUSDT",
+    "DODOXUSDT",
+    "BRUSDT",
+    "VICUSDT",
+    "SYSUSDT",
+    "FIOUSDT",
+    "CTKUSDT",
+    "SCRTUSDT",
+    "STEEMUSDT",
+    "MAVIAUSDT",
+    "QUICKUSDT",
+    "DUSDT",
+    "ONGUSDT",
+    "FORTHUSDT",
+    "BANUSDT",
+    "COSUSDT",
+    "GHSTUSDT"
+]
 
-        self.timeframes = {
-            "15m": Client.KLINE_INTERVAL_15MINUTE,
-            "1h": Client.KLINE_INTERVAL_1HOUR
-        }
+# === Logging Setup ===
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('breakout_scanner.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
-        self.settings = {
-            "lookback": 1000,
-            "min_volume_ratio": 2.5,
-            "price_change_threshold": 0.04,
-            "rsi_range": (55, 75),
-            "atr_multiplier": 1.8,
-            "min_candle_body": 0.025,
-            "capital": 3,
-            "leverage": 20,
-            "target_profit": 2
-        }
+# Initialize Binance client
+client = Client()
 
-        self.csv_file = "signals_log.csv"
-        if not os.path.exists(self.csv_file):
-            with open(self.csv_file, mode='w', newline='') as file:
-                writer = csv.writer(file)
-                writer.writerow(["Symbol", "Timeframe", "Direction", "Entry", "TP1", "SL", "Confidence", "Profit", "Predicted Exit"])
-
-    def fetch_market_data(self, symbol, interval):
-        try:
-            klines = self.client.get_klines(symbol=symbol, interval=interval, limit=self.settings["lookback"])
-            df = pd.DataFrame(klines, columns=[
-                'timestamp', 'open', 'high', 'low', 'close', 'volume',
-                'close_time', 'quote_volume', 'trades',
-                'taker_buy_base', 'taker_buy_quote', 'ignore'
-            ])
-            for col in ['open', 'high', 'low', 'close', 'volume']:
-                df[col] = pd.to_numeric(df[col])
-            df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
-            return df.set_index('datetime')
-        except Exception as e:
-            print(f"API Error for {symbol} {interval}: {str(e)}")
-            return None
-
-    def calculate_technical_indicators(self, df):
-        if df is None or len(df) < 50:
-            return None
-        df['MA20'] = ta.sma(df['close'], length=20)
-        df['MA50'] = ta.sma(df['close'], length=50)
-        df['MA100'] = ta.sma(df['close'], length=100)
-        df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
-        bb = ta.bbands(df['close'], length=20)
-        df['BB_upper'] = bb['BBU_20_2.0']
-        df['BB_lower'] = bb['BBL_20_2.0']
-        df['RSI'] = ta.rsi(df['close'], length=14)
-        df['MACD'] = ta.macd(df['close'])['MACD_12_26_9']
-        df['VWAP'] = (df['close'] * df['volume']).cumsum() / df['volume'].cumsum()
-        df['Volume_MA20'] = df['volume'].rolling(20).mean()
-        df['Resistance'] = df['high'].rolling(10).max()
-        df['Support'] = df['low'].rolling(10).min()
-        return df.dropna()
-
-    def calculate_profit(self, entry, tp):
-        gain_pct = (tp - entry) / entry
-        profit = gain_pct * self.settings["capital"] * self.settings["leverage"]
-        return round(profit, 2), profit >= self.settings["target_profit"]
-
-    def estimate_exit_time(self, df, entry_price, tp1, timeframe):
-        df = df.copy()
-        df['candle_gain'] = (df['close'] - df['open']) / df['open']
-        avg_gain = df[df['candle_gain'] > 0]['candle_gain'].mean()
-        if not avg_gain or avg_gain <= 0:
-            return None
-        required_gain = (tp1 - entry_price) / entry_price
-        estimated_candles = required_gain / avg_gain
-        if timeframe == "15m":
-            return df.index[-1] + timedelta(minutes=15 * estimated_candles)
-        elif timeframe == "1h":
-            return df.index[-1] + timedelta(hours=estimated_candles)
-        else:
-            return df.index[-1] + timedelta(hours=4 * estimated_candles)
-
-    def detect_big_entry_now(self, df, symbol, timeframe):
-        if df is None or len(df) < 100:
-            return None
-
-        last = df.iloc[-1]
-        prev_5_avg = df['close'].iloc[-6:-1].mean()
-        price_spike = (last['close'] - prev_5_avg) / prev_5_avg
-        volume_spike = last['volume'] / df['Volume_MA20'].iloc[-1]
-        rsi_ok = 60 <= last['RSI'] <= 80
-
-        if price_spike > 0.07 and volume_spike > 3 and rsi_ok:
-            entry_price = last['close']
-            sl = df['low'].iloc[-10:-1].min()
-            tp = entry_price + (entry_price - sl) * 2
-            exit_time = self.estimate_exit_time(df, entry_price, tp, timeframe)
-
-            # Ensure estimated exit time is at least 4 hours ahead
-            if exit_time and (exit_time - df.index[-1]).total_seconds() >= 4 * 3600:
-                signal = {
-                    'symbol': symbol,
-                    'timeframe': timeframe,
-                    'entry': round(entry_price, 5),
-                    'sl': round(sl, 5),
-                    'tp1': round(tp, 5),
-                    'profit': round((tp - entry_price) * self.settings["leverage"], 2),
-                    'confidence': round(price_spike * 100, 2),
-                    'exit_time': exit_time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'direction': "BUY"
-                }
-
-                self.send_alert(signal)
-                self.log_to_csv(signal)
-                print(f"✅ STRONG BUY BREAKPOINT for {symbol} on {timeframe}")
-                return signal
+def get_current_price(symbol):
+    try:
+        ticker = client.get_symbol_ticker(symbol=symbol)
+        return float(ticker['price'])
+    except Exception as e:
+        logger.error(f"Error getting current price for {symbol}: {e}")
         return None
 
+def get_active_symbols():
+    try:
+        all_symbols = []
+        exchange_info = client.get_exchange_info()
+        for symbol in exchange_info['symbols']:
+            if symbol['quoteAsset'] == 'USDT' and symbol['status'] == 'TRADING':
+                all_symbols.append(symbol['symbol'])
+        return all_symbols[:50]
+    except Exception as e:
+        logger.error(f"Error in get_active_symbols: {e}")
+        return DEFAULT_SYMBOLS
 
-    def log_to_csv(self, signal):
-        with open(self.csv_file, mode='a', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow([
-                signal['symbol'], signal['timeframe'], signal['direction'], signal['entry'],
-                signal['tp1'], signal['sl'], signal['confidence'], signal['profit'], signal['exit_time']
-            ])
+def get_klines(symbol, interval=TIMEFRAME, limit=100):
+    try:
+        klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
+        df = pd.DataFrame(klines, columns=[
+            'time', 'open', 'high', 'low', 'close', 'volume',
+            'close_time', 'quote_asset_volume', 'num_trades',
+            'taker_buy_base', 'taker_buy_quote', 'ignore'
+        ])
+        df['time'] = pd.to_datetime(df['time'], unit='ms')
+        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+        df[numeric_cols] = df[numeric_cols].astype(float)
+        return df
+    except Exception as e:
+        logger.warning(f"Failed to get klines for {symbol}: {e}")
+        return None
 
-    def send_alert(self, signal):
-        message = f"""
-🔔 {signal['symbol']} Breakout Signal
-Timeframe: {signal['timeframe']} | Direction: {signal['direction']}
-Entry: {signal['entry']} | SL: {signal['sl']} | TP1: {signal['tp1']}
-Confidence: {signal['confidence']} | Profit: ${signal['profit']}
-Exit Estimate: {signal['exit_time']}
+def detect_breakout(df, symbol):
+    try:
+        df['MA7'] = EMAIndicator(df['close'], window=7).ema_indicator()
+        df['MA25'] = EMAIndicator(df['close'], window=25).ema_indicator()
+        df['MA99'] = EMAIndicator(df['close'], window=99).ema_indicator()
+        df['RSI14'] = RSIIndicator(df['close'], window=14).rsi()
+        df['VOL_MA20'] = df['volume'].rolling(20).mean()
+
+        resistance_window = df['high'][-50:-5]
+        resistance = resistance_window.max()
+        resistance_touches = sum(abs(resistance_window - resistance) < resistance * 0.005)
+
+        current_price = get_current_price(symbol)
+        if current_price is None:
+            return False, None, None, None, None, None, None, None, None
+
+        last = df.iloc[-1]
+
+        conditions = {
+            'resistance_break': current_price > resistance * 1.005,
+            'multiple_tests': resistance_touches >= 3,
+            'bullish_candle': last['close'] > last['open'],
+            'volume_spike': last['volume'] > df['VOL_MA20'].iloc[-1] * 1.5,
+            'ma_alignment': last['MA7'] > last['MA25'] > last['MA99'],
+            'above_vwap': current_price > VolumeWeightedAveragePrice(
+                high=df['high'], low=df['low'], close=df['close'],
+                volume=df['volume'], window=20).volume_weighted_average_price().iloc[-1]
+        }
+
+        if all(conditions.values()):
+            measured_move = resistance * 0.07
+            tp1 = round(resistance + measured_move * 0.5, 4)
+            tp2 = round(resistance + measured_move, 4)
+            tp3 = round(resistance + measured_move * 1.5, 4)
+            sl = round(resistance * 0.995, 4)
+
+            return True, current_price, datetime.now().strftime('%Y-%m-%d %H:%M'), resistance, tp1, tp2, tp3, sl, resistance_touches
+    except Exception as e:
+        logger.error(f"Breakout detection error for {symbol}: {e}")
+
+    return False, None, None, None, None, None, None, None, None
+
+def format_breakout_alert(symbol, price, time_str, resistance, tp1, tp2, tp3, sl, resistance_touches):
+    return f"""🚀 *Breakout Alert* ({TIMEFRAME.upper()})
+
+📈 *Symbol:* `{symbol}`
+💰 *Price:* `{price}`
+⏰ *Time:* `{time_str}`
+📊 *Resistance:* `{resistance}` (Tested {resistance_touches}x)
+
+🎯 *Targets (Measured Move):*
+├ TP1: {tp1} (+{round((tp1/resistance-1)*100, 2)}%)
+├ TP2: {tp2} (+{round((tp2/resistance-1)*100, 2)}%)
+└ TP3: {tp3} (+{round((tp3/resistance-1)*100, 2)}%)
+
+🛡 *Stop Loss:* {sl} (-{round((1-sl/price)*100, 2)}%)
+
+📊 *Technical Analysis Summary:*
+1. *Breakout Pattern:* Resistance at `{round(resistance, 4)}` broken with strong volume.
+2. *Breakout Candle:* Large bullish candle above resistance confirms move.
+3. *Measured Move:* Estimated target zone `{round(resistance * 1.07, 4)}` (+7%) from breakout.
+4. *Volume Confirmation:* Volume spike detected (1.5x above average).
+5. *MA Alignment:* MA(7) > MA(25) > MA(99) → Bullish trend confirmation.
+
+📉 *Indicators Used:*
+- MA(7): Yellow
+- MA(25): Pink
+- MA(99): Purple
+- RSI(14)
+- VWAP(20)
+- Volume Bars
+
+⏳ *Next Scan in {INTERVAL_MINUTES} minutes*
 """
-        print(message)
-        self.bot.send_message(chat_id=self.chat_id, text=message)
 
-    def scan_markets(self):
-        print("🚀 Starting Breakout + Big Entry Scanner...")
-        while True:
-            print(f"\n🕒 Scanning at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            for symbol in self.symbols:
-                for tf_name, tf_value in self.timeframes.items():
-                    try:
-                        df = self.fetch_market_data(symbol, tf_value)
-                        df = self.calculate_technical_indicators(df)
-                        self.detect_big_entry_now(df, symbol, tf_name)
-                    except Exception as e:
-                        print(f"Error processing {symbol} {tf_name}: {str(e)}")
+def send_telegram_alert(msg):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        'chat_id': CHAT_ID,
+        'text': msg,
+        'parse_mode': 'Markdown'
+    }
+    try:
+        response = requests.post(url, data=payload, timeout=10)
+        response.raise_for_status()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send Telegram alert: {e}")
+        return False
+
+def scan_symbols(symbols):
+    signals_found = 0
+    for symbol in symbols:
+        df = get_klines(symbol)
+        if df is None or len(df) < 50:
+            continue
+        valid, price, time_str, res, tp1, tp2, tp3, sl, resistance_touches = detect_breakout(df, symbol)
+        if valid:
+            msg = format_breakout_alert(symbol, price, time_str, res, tp1, tp2, tp3, sl, resistance_touches)
+            if send_telegram_alert(msg):
+                signals_found += 1
+                logger.info(f"Breakout alert sent for {symbol}")
+    return signals_found
+
+def run_continuous_scanner():
+    last_symbol_refresh = datetime.now()
+    symbols = get_active_symbols()
+
+    while True:
+        try:
+            if (datetime.now() - last_symbol_refresh) > timedelta(hours=SYMBOL_REFRESH_HOURS):
+                symbols = get_active_symbols()
+                last_symbol_refresh = datetime.now()
+                logger.info(f"Refreshed symbol list: {len(symbols)} symbols")
+
+            start_time = datetime.now()
+            logger.info(f"Starting scan at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            found = scan_symbols(symbols)
+            logger.info(f"Scan complete. {found} breakouts found.")
+
+            elapsed = (datetime.now() - start_time).total_seconds()
+            time.sleep(max(0, INTERVAL_MINUTES * 60 - elapsed))
+        except KeyboardInterrupt:
+            logger.info("Scanner stopped by user.")
+            break
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
             time.sleep(60)
 
 if __name__ == "__main__":
-    scanner = BreakoutScanner()
-    scanner.scan_markets()
+    run_continuous_scanner()
