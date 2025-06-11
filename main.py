@@ -1,421 +1,428 @@
 import pandas as pd
 import time
 import requests
-import logging
 from binance.client import Client
-from ta.trend import EMAIndicator
+from binance import ThreadedWebsocketManager
+from ta.trend import SMAIndicator
 from ta.momentum import RSIIndicator
-from ta.volume import VolumeWeightedAveragePrice
-from datetime import datetime, timedelta
+from ta.volatility import BollingerBands
+from datetime import datetime
 
-# === Configuration ===
+# === Config ===
 TELEGRAM_TOKEN = '7532851212:AAHOVx1esNWrtk2SJbBQHCXMae7Y-dKJR5o'
 CHAT_ID = '7771111812'
 TIMEFRAME = '1h'
-INTERVAL_MINUTES = 15
-MAX_RETRIES = 5
-BASE_RECONNECT_DELAY = 1
-SYMBOL_REFRESH_HOURS = 6
+INTERVAL_SECONDS = 600  # Every 30 minutes
 
-DEFAULT_SYMBOLS =  [
-    "LAUSDT",       
-    "ONDOUSDT",     
+symbols_to_check = [
     "FETUSDT",      
-    "UMAUSDT",
-    "TONUSDT",
-    "1000BONKUSDT",
-    "SOPHUSDT",
+    "BIDUSDT",      
+    "ETCUSDT",      
+    "JTOUSDT",      
+    "ONDOUSDT",     
+    "JUPUSDT",      
+    "SKATEUSDT",    
+    "NXPCUSDT",     
+    "1000BONKUSDT", 
+    "TONUSDT",      
     "POPCATUSDT",
-    "SKATEUSDT",
-    "NXPCUSDT",
-    "PEOPLEUSDT",
     "ICPUSDT",
-    "BIDUSDT",
-    "XLMUSDT",
+    "PEOPLEUSDT",
     "AI16ZUSDT",
+    "RPLUSDT",
     "AIXBTUSDT",
-    "OMUSDT",
-    "1000FLOKIUSDT",
-    "ICXUSDT",
+    "XLMUSDT",
     "KAITOUSDT",
+    "1000FLOKIUSDT",
+    "AUSDT",
+    "COOKIEUSDT",
+    "DEXEUSDT",
+    "OMUSDT",
+    "EPTUSDT",
     "APTUSDT",
     "ORDIUSDT",
-    "COOKIEUSDT",
     "GALAUSDT",
     "HBARUSDT",
     "SSVUSDT",
     "LQTYUSDT",
-    "DEXEUSDT",
-    "DYDXUSDT",
     "PENDLEUSDT",
-    "GOATUSDT",
-    "CAKEUSDT",
     "BUSDT",
-    "MOVEUSDT",
+    "DYDXUSDT",
+    "CAKEUSDT",
     "BOMEUSDT",
-    "SUSHIUSDT",
+    "GOATUSDT",
     "SUSDT",
-    "USUALUSDT",
-    "AXSUSDT",
+    "MOVEUSDT",
+    "SUSHIUSDT",
     "SEIUSDT",
     "ATOMUSDT",
+    "USUALUSDT",
     "RENDERUSDT",
     "MUBARAKUSDT",
-    "ZROUSDT",
-    "APEUSDT",
-    "TURBOUSDT",
-    "FLMUSDT",
-    "EPTUSDT",
-    "RAYSOLUSDT",
-    "CHILLGUYUSDT",
-    "ZENUSDT",
-    "VVVUSDT",
-    "HMSTRUSDT",
     "1000000MOGUSDT",
-    "KMNOUSDT",
-    "SANDUSDT",
+    "APEUSDT",
+    "ICXUSDT",
+    "ZROUSDT",
+    "HMSTRUSDT",
+    "FLMUSDT",
+    "TURBOUSDT",
+    "VVVUSDT",
+    "CHILLGUYUSDT",
+    "RAYSOLUSDT",
+    "ZENUSDT",
+    "AXSUSDT",
     "MOVRUSDT",
     "BRETTUSDT",
+    "SANDUSDT",
     "GRASSUSDT",
-    "ARKMUSDT",
     "ALGOUSDT",
-    "FIDAUSDT",
+    "ARKMUSDT",
     "POLUSDT",
-    "LAYERUSDT",
-    "GRIFFAINUSDT",
-    "LISTAUSDT",
-    "STRKUSDT",
-    "IOSTUSDT",
+    "FIDAUSDT",
     "SOONUSDT",
-    "XMRUSDT",
+    "GRIFFAINUSDT",
+    "LAYERUSDT",
+    "LISTAUSDT",
     "KAVAUSDT",
-    "SXTUSDT",
+    "STRKUSDT",
+    "XMRUSDT",
     "RUNEUSDT",
     "STXUSDT",
-    "IMXUSDT",
-    "COWUSDT",
+    "KMNOUSDT",
     "BERAUSDT",
-    "ARCUSDT",
-    "ARUSDT",
+    "SXTUSDT",
+    "IMXUSDT",
     "VETUSDT",
+    "ARCUSDT",
+    "MEUSDT",
+    "ARUSDT",
+    "CETUSUSDT",
+    "PYTHUSDT",
+    "COWUSDT",
     "XAIUSDT",
     "PUMPUSDT",
-    "WUSDT",
-    "PYTHUSDT",
     "VANAUSDT",
-    "NOTUSDT",
-    "FXSUSDT",
-    "CETUSUSDT",
     "ZEREBROUSDT",
-    "SOLVUSDT",
+    "WUSDT",
     "1000SATSUSDT",
-    "ALTUSDT",
     "MEMEUSDT",
+    "ALTUSDT",
+    "SOLVUSDT",
+    "IOSTUSDT",
     "HAEDALUSDT",
+    "FXSUSDT",
+    "NOTUSDT",
+    "TUSDT",
     "ZKUSDT",
-    "DOGSUSDT",
     "SHELLUSDT",
     "MEWUSDT",
-    "MEUSDT",
     "KASUSDT",
-    "AEROUSDT",
     "SWARMSUSDT",
-    "B2USDT",
-    "NEOUSDT",
-    "GRTUSDT",
-    "THETAUSDT",
-    "AVAAIUSDT",
-    "SNXUSDT",
-    "KERNELUSDT",
-    "BDXNUSDT",
-    "XTZUSDT",
-    "REZUSDT",
-    "NEIROETHUSDT",
-    "PARTIUSDT",
-    "BABYUSDT",
-    "SIRENUSDT",
-    "IOUSDT",
-    "VINEUSDT",
-    "ACTUSDT",
-    "NILUSDT",
-    "CYBERUSDT",
-    "GUNUSDT",
-    "BANANAUSDT",
-    "CVCUSDT",
-    "SXPUSDT",
-    "MELANIAUSDT",
-    "FUNUSDT",
-    "GPSUSDT",
-    "PONKEUSDT",
-    "MANAUSDT",
-    "SAGAUSDT",
+    "AEROUSDT",
     "JELLYJELLYUSDT",
-    "TSTUSDT",
+    "AVAAIUSDT",
+    "NEOUSDT",
+    "THETAUSDT",
+    "GRTUSDT",
     "JASMYUSDT",
-    "BMTUSDT",
-    "FORMUSDT",
-    "QNTUSDT",
-    "GMXUSDT",
-    "GMTUSDT",
-    "MINAUSDT",
-    "BIOUSDT",
-    "MANTAUSDT",
-    "ALCHUSDT",
-    "SIGNUSDT",
-    "FLOWUSDT",
+    "KERNELUSDT",
+    "B2USDT",
+    "BDXNUSDT",
     "AERGOUSDT",
-    "DEEPUSDT",
-    "ROSEUSDT",
+    "ACTUSDT",
+    "GPSUSDT",
+    "SNXUSDT",
+    "DOGSUSDT",
+    "PARTIUSDT",
+    "GUNUSDT",
+    "REZUSDT",
+    "CVCUSDT",
+    "NEIROETHUSDT",
+    "VINEUSDT",
+    "XTZUSDT",
+    "IOUSDT",
+    "BABYUSDT",
+    "NILUSDT",
+    "BANANAUSDT",
+    "PONKEUSDT",
+    "FUNUSDT",
+    "SAGAUSDT",
+    "SIRENUSDT",
+    "GMXUSDT",
     "CFXUSDT",
-    "ZRXUSDT",
-    "PLUMEUSDT",
-    "CHZUSDT",
-    "TUSDT",
-    "ACHUSDT",
-    "CHESSUSDT",
-    "PROMPTUSDT",
-    "1INCHUSDT",
+    "SXPUSDT",
+    "QNTUSDT",
+    "MELANIAUSDT",
+    "TSTUSDT",
+    "MANAUSDT",
+    "BIOUSDT",
+    "ALCHUSDT",
+    "GMTUSDT",
+    "BMTUSDT",
+    "DEEPUSDT",
+    "MINAUSDT",
+    "SIGNUSDT",
     "TUTUSDT",
+    "FLOWUSDT",
+    "MANTAUSDT",
+    "ROSEUSDT",
+    "CHESSUSDT",
+    "CHZUSDT",
+    "PROMPTUSDT",
+    "DEGOUSDT",
+    "ZRXUSDT",
+    "ACHUSDT",
+    "1INCHUSDT",
+    "PLUMEUSDT",
     "AGLDUSDT",
-    "IOTAUSDT",
     "CELOUSDT",
     "RSRUSDT",
-    "PORTALUSDT",
+    "IOTAUSDT",
     "ORCAUSDT",
+    "API3USDT",
     "PIXELUSDT",
-    "DEGOUSDT",
-    "MERLUSDT",
-    "1MBABYDOGEUSDT",
+    "FORMUSDT",
     "BANANAS31USDT",
-    "WALUSDT",
-    "STOUSDT",
-    "EPICUSDT",
+    "1MBABYDOGEUSDT",
     "IPUSDT",
+    "PORTALUSDT",
+    "WALUSDT",
+    "DEGENUSDT",
     "HYPERUSDT",
+    "MERLUSDT",
+    "SUPERUSDT",
+    "RAREUSDT",
     "MAGICUSDT",
-    "MOCAUSDT",
-    "BLURUSDT",
-    "AEVOUSDT",
-    "DRIFTUSDT",
-    "VANRYUSDT",
+    "DOLOUSDT",
     "PIPPINUSDT",
     "BBUSDT",
-    "API3USDT",
-    "USDCUSDT",
-    "BSVUSDT",
-    "SUPERUSDT",
-    "AUCTIONUSDT",
+    "CYBERUSDT",
+    "BLURUSDT",
+    "EPICUSDT",
+    "VANRYUSDT",
     "1000LUNCUSDT",
-    "DEGENUSDT",
-    "ZILUSDT",
-    "BIGTIMEUSDT",
-    "EGLDUSDT",
-    "ZECUSDT",
     "BROCCOLIF3BUSDT",
-    "RAREUSDT",
+    "STOUSDT",
     "IOTXUSDT",
-    "ONEUSDT",
-    "HIPPOUSDT",
+    "ZECUSDT",
+    "BSVUSDT",
+    "USDCUSDT",
+    "AEVOUSDT",
+    "EGLDUSDT",
+    "ZILUSDT",
     "RLCUSDT",
+    "AUCTIONUSDT",
     "ALICEUSDT",
-    "MORPHOUSDT",
-    "KSMUSDT",
-    "CATIUSDT",
-    "ALPHAUSDT",
-    "LRCUSDT",
-    "BROCCOLI714USDT",
-    "THEUSDT",
-    "CGPTUSDT",
-    "STORJUSDT",
-    "SCRUSDT",
-    "AIUSDT",
-    "NMRUSDT",
-    "AGTUSDT",
-    "ATHUSDT",
-    "GASUSDT",
-    "METISUSDT",
-    "SKYAIUSDT",
-    "1000RATSUSDT",
-    "ENJUSDT",
+    "BIGTIMEUSDT",
     "PORT3USDT",
-    "VOXELUSDT",
+    "HIPPOUSDT",
+    "ONEUSDT",
+    "ALPHAUSDT",
+    "CATIUSDT",
+    "METISUSDT",
+    "LRCUSDT",
+    "ATHUSDT",
+    "BROCCOLI714USDT",
+    "KSMUSDT",
+    "KDAUSDT",
+    "NMRUSDT",
+    "STORJUSDT",
+    "THEUSDT",
+    "MORPHOUSDT",
+    "MOCAUSDT",
+    "SCRUSDT",
     "PUFFERUSDT",
-    "BAKEUSDT",
     "QTUMUSDT",
     "XCNUSDT",
-    "DOLOUSDT",
-    "COTIUSDT",
-    "DYMUSDT",
-    "HIGHUSDT",
-    "1000CATUSDT",
-    "KDAUSDT",
-    "LUNA2USDT",
-    "OMNIUSDT",
-    "C98USDT",
-    "YGGUSDT",
-    "SWELLUSDT",
-    "WOOUSDT",
-    "BELUSDT",
     "UXLINKUSDT",
-    "DASHUSDT",
-    "ASTRUSDT",
+    "CGPTUSDT",
+    "GASUSDT",
+    "AGTUSDT",
+    "BELUSDT",
+    "1000RATSUSDT",
+    "VOXELUSDT",
+    "DYMUSDT",
+    "SKYAIUSDT",
+    "DRIFTUSDT",
+    "ENJUSDT",
+    "1000CATUSDT",
+    "LUNA2USDT",
+    "WOOUSDT",
+    "HOOKUSDT",
+    "BAKEUSDT",
+    "COTIUSDT",
+    "OMNIUSDT",
+    "YGGUSDT",
+    "PUNDIXUSDT",
     "AKTUSDT",
+    "SWELLUSDT",
+    "ASTRUSDT",
     "EDUUSDT",
-    "ZETAUSDT",
     "BEAMXUSDT",
     "HOTUSDT",
-    "ONTUSDT",
-    "OGNUSDT",
-    "HOOKUSDT",
+    "C98USDT",
+    "HIGHUSDT",
     "JOEUSDT",
-    "PUNDIXUSDT",
-    "FHEUSDT",
-    "IDUSDT",
-    "1000CHEEMSUSDT",
+    "ZETAUSDT",
+    "DASHUSDT",
+    "OGNUSDT",
     "ANKRUSDT",
     "LUMIAUSDT",
-    "PHBUSDT",
-    "SONICUSDT",
-    "XVGUSDT",
-    "HIVEUSDT",
-    "REDUSDT",
+    "ONTUSDT",
+    "IDUSDT",
     "MYROUSDT",
     "CELRUSDT",
+    "1000CHEEMSUSDT",
+    "PHBUSDT",
+    "HIVEUSDT",
+    "FHEUSDT",
+    "SONICUSDT",
+    "REDUSDT",
+    "XVGUSDT",
     "ATAUSDT",
+    "AIUSDT",
     "REIUSDT",
     "SPELLUSDT",
+    "AIOTUSDT",
     "HIFIUSDT",
-    "SAFEUSDT",
-    "HFTUSDT",
     "BICOUSDT",
     "CKBUSDT",
     "OBOLUSDT",
     "CHRUSDT",
-    "SKLUSDT",
-    "DFUSDT",
-    "STGUSDT",
     "MAVUSDT",
-    "NFPUSDT",
-    "ACXUSDT",
-    "AVAUSDT",
+    "STGUSDT",
     "PHAUSDT",
-    "DOODUSDT",
+    "SKLUSDT",
+    "SAFEUSDT",
+    "DFUSDT",
+    "AVAUSDT",
+    "NFPUSDT",
+    "HFTUSDT",
     "1000XUSDT",
-    "AIOTUSDT",
-    "BATUSDT",
-    "GTCUSDT",
     "1000XECUSDT",
+    "GTCUSDT",
+    "ALPINEUSDT",
+    "BATUSDT",
+    "AWEUSDT",
     "RDNTUSDT",
     "NKNUSDT",
-    "KNCUSDT",
-    "ALPINEUSDT",
+    "DOODUSDT",
     "LEVERUSDT",
-    "PERPUSDT",
     "BANDUSDT",
     "SYNUSDT",
-    "TRUUSDT",
-    "AWEUSDT",
-    "SUNUSDT",
-    "ETHWUSDT",
-    "BSWUSDT",
-    "DENTUSDT",
-    "JSTUSDT",
-    "RONINUSDT",
-    "GLMUSDT",
-    "FISUSDT",
-    "MEMEFIUSDT",
-    "TOKENUSDT",
-    "B3USDT",
-    "LOKAUSDT",
     "ARKUSDT",
-    "ACEUSDT",
-    "MILKUSDT",
-    "POLYXUSDT",
-    "TNSRUSDT",
-    "VTHOUSDT",
-    "TWTUSDT",
-    "MLNUSDT",
-    "RIFUSDT",
-    "HEIUSDT",
-    "TLMUSDT",
-    "ZKJUSDT",
-    "CTSIUSDT",
-    "KOMAUSDT",
-    "ARPAUSDT",
-    "WAXPUSDT",
-    "ASRUSDT",
-    "LSKUSDT",
-    "USTCUSDT",
-    "OXTUSDT",
-    "SFPUSDT",
-    "MBOXUSDT",
-    "ILVUSDT",
-    "BANKUSDT",
-    "OGUSDT",
-    "VELODROMEUSDT",
-    "NTRNUSDT",
-    "GUSDT",
-    "DUSKUSDT",
-    "PROMUSDT",
-    "MTLUSDT",
-    "POWRUSDT",
-    "FLUXUSDT",
-    "BNTUSDT",
-    "DIAUSDT",
-    "XVSUSDT",
-    "DODOXUSDT",
-    "BRUSDT",
-    "VICUSDT",
-    "SYSUSDT",
-    "FIOUSDT",
-    "CTKUSDT",
-    "SCRTUSDT",
-    "STEEMUSDT",
-    "MAVIAUSDT",
-    "QUICKUSDT",
-    "DUSDT",
-    "ONGUSDT",
-    "FORTHUSDT",
+    "KNCUSDT",
+    "BSWUSDT",
+    "ETHWUSDT",
+    "JSTUSDT",
+    "PERPUSDT",
+    "ACXUSDT",
     "BANUSDT",
+    "DENTUSDT",
+    "GLMUSDT",
+    "CTSIUSDT",
+    "RONINUSDT",
+    "MEMEFIUSDT",
+    "LOKAUSDT",
+    "TOKENUSDT",
+    "ZKJUSDT",
+    "TRUUSDT",
+    "B3USDT",
+    "SUNUSDT",
+    "FISUSDT",
+    "POLYXUSDT",
+    "MILKUSDT",
+    "HEIUSDT",
+    "TNSRUSDT",
+    "TWTUSDT",
+    "KOMAUSDT",
+    "VTHOUSDT",
+    "RIFUSDT",
+    "MLNUSDT",
+    "TLMUSDT",
+    "WAXPUSDT",
+    "OGUSDT",
+    "USTCUSDT",
+    "ACEUSDT",
+    "MBOXUSDT",
+    "LSKUSDT",
+    "OXTUSDT",
+    "ASRUSDT",
+    "BANKUSDT",
+    "ARPAUSDT",
+    "SFPUSDT",
+    "ILVUSDT",
+    "NTRNUSDT",
+    "DUSKUSDT",
+    "MTLUSDT",
+    "VELODROMEUSDT",
+    "GUSDT",
+    "POWRUSDT",
+    "DIAUSDT",
+    "FLUXUSDT",
+    "XVSUSDT",
+    "BNTUSDT",
+    "DODOXUSDT",
+    "CTKUSDT",
+    "PROMUSDT",
+    "FIOUSDT",
+    "SYSUSDT",
+    "BRUSDT",
+    "SCRTUSDT",
+    "QUICKUSDT",
     "COSUSDT",
-    "GHSTUSDT"
+    "STEEMUSDT",
+    "DUSDT",
+    "MAVIAUSDT",
+    "1000WHYUSDT",
+    "FORTHUSDT",
+    "ONGUSDT",
+    "GHSTUSDT",
+    "SANTOSUSDT",
+    "VICUSDT"
+    "FLUXUSDT",
+    "XVSUSDT",
+    "BNTUSDT",
+    "DODOXUSDT",
+    "CTKUSDT",
+    "PROMUSDT",
+    "FIOUSDT",
+    "SYSUSDT",
+    "BRUSDT",
+    "SCRTUSDT",
+    "QUICKUSDT",
+    "COSUSDT",
+    "STEEMUSDT",
+    "DUSDT",
+    "MAVIAUSDT",
+    "1000WHYUSDT",
+    "FORTHUSDT",
+    "ONGUSDT",
+    "GHSTUSDT",
+    "SANTOSUSDT",
+    "VICUSDT"
+    "SCRTUSDT",
+    "QUICKUSDT",
+    "COSUSDT",
+    "STEEMUSDT",
+    "DUSDT",
+    "MAVIAUSDT",
+    "1000WHYUSDT",
+    "FORTHUSDT",
+    "ONGUSDT",
+    "GHSTUSDT",
+    "SANTOSUSDT",
+    "VICUSDT"
+    "VICUSDT"
 ]
 
-# === Logging Setup ===
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('breakout_scanner.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-# Initialize Binance client
+# Global variables
 client = Client()
+twm = ThreadedWebsocketManager()
+twm.start()
+live_data = {symbol: {'price': None, 'volume': None} for symbol in symbols_to_check}
 
-def get_current_price(symbol):
-    try:
-        ticker = client.get_symbol_ticker(symbol=symbol)
-        return float(ticker['price'])
-    except Exception as e:
-        logger.error(f"Error getting current price for {symbol}: {e}")
-        return None
-
-def get_active_symbols():
-    try:
-        all_symbols = []
-        exchange_info = client.get_exchange_info()
-        for symbol in exchange_info['symbols']:
-            if symbol['quoteAsset'] == 'USDT' and symbol['status'] == 'TRADING':
-                all_symbols.append(symbol['symbol'])
-        return all_symbols[:50]
-    except Exception as e:
-        logger.error(f"Error in get_active_symbols: {e}")
-        return DEFAULT_SYMBOLS
-
-def get_klines(symbol, interval=TIMEFRAME, limit=100):
+def get_klines(symbol, interval=TIMEFRAME, limit=150):
     try:
         klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
         df = pd.DataFrame(klines, columns=[
@@ -424,89 +431,99 @@ def get_klines(symbol, interval=TIMEFRAME, limit=100):
             'taker_buy_base', 'taker_buy_quote', 'ignore'
         ])
         df['time'] = pd.to_datetime(df['time'], unit='ms')
-        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
-        df[numeric_cols] = df[numeric_cols].astype(float)
+        df['close'] = df['close'].astype(float)
+        df['low'] = df['low'].astype(float)
+        df['high'] = df['high'].astype(float)
+        df['volume'] = df['volume'].astype(float)
         return df
     except Exception as e:
-        logger.warning(f"Failed to get klines for {symbol}: {e}")
+        print(f"❌ Error fetching {symbol}: {e}")
         return None
 
-def detect_breakout(df, symbol):
+def handle_socket_message(msg):
+    """Handle incoming WebSocket messages"""
     try:
-        df['MA7'] = EMAIndicator(df['close'], window=7).ema_indicator()
-        df['MA25'] = EMAIndicator(df['close'], window=25).ema_indicator()
-        df['MA99'] = EMAIndicator(df['close'], window=99).ema_indicator()
-        df['RSI14'] = RSIIndicator(df['close'], window=14).rsi()
-        df['VOL_MA20'] = df['volume'].rolling(20).mean()
-
-        resistance_window = df['high'][-50:-5]
-        resistance = resistance_window.max()
-        resistance_touches = sum(abs(resistance_window - resistance) < resistance * 0.005)
-
-        current_price = get_current_price(symbol)
-        if current_price is None:
-            return False, None, None, None, None, None, None, None, None
-
-        last = df.iloc[-1]
-
-        conditions = {
-            'resistance_break': current_price > resistance * 1.005,
-            'multiple_tests': resistance_touches >= 3,
-            'bullish_candle': last['close'] > last['open'],
-            'volume_spike': last['volume'] > df['VOL_MA20'].iloc[-1] * 1.5,
-            'ma_alignment': last['MA7'] > last['MA25'] > last['MA99'],
-            'above_vwap': current_price > VolumeWeightedAveragePrice(
-                high=df['high'], low=df['low'], close=df['close'],
-                volume=df['volume'], window=20).volume_weighted_average_price().iloc[-1]
-        }
-
-        if all(conditions.values()):
-            measured_move = resistance * 0.07
-            tp1 = round(resistance + measured_move * 0.5, 4)
-            tp2 = round(resistance + measured_move, 4)
-            tp3 = round(resistance + measured_move * 1.5, 4)
-            sl = round(resistance * 0.995, 4)
-
-            return True, current_price, datetime.now().strftime('%Y-%m-%d %H:%M'), resistance, tp1, tp2, tp3, sl, resistance_touches
+        symbol = msg['s']
+        if symbol in live_data:
+            live_data[symbol]['price'] = float(msg['c'])
+            live_data[symbol]['volume'] = float(msg['v'])
     except Exception as e:
-        logger.error(f"Breakout detection error for {symbol}: {e}")
+        print(f"WebSocket error: {e}")
 
-    return False, None, None, None, None, None, None, None, None
+def start_websocket():
+    """Start WebSocket connections for all symbols"""
+    for symbol in symbols_to_check:
+        twm.start_symbol_ticker_socket(
+            callback=handle_socket_message,
+            symbol=symbol
+        )
+    print("WebSocket connections established for all symbols")
 
-def format_breakout_alert(symbol, price, time_str, resistance, tp1, tp2, tp3, sl, resistance_touches):
-    return f"""🚀 *Breakout Alert* ({TIMEFRAME.upper()})
+def detect_breakout_method(df, symbol):
+    df['MA7'] = SMAIndicator(df['close'], window=7).sma_indicator()
+    df['MA25'] = SMAIndicator(df['close'], window=25).sma_indicator()
+    df['MA99'] = SMAIndicator(df['close'], window=99).sma_indicator()
+    df['RSI'] = RSIIndicator(df['close'], window=14).rsi()
+    bb = BollingerBands(close=df['close'], window=20)
+    df['bb_upper'] = bb.bollinger_hband()
 
-📈 *Symbol:* `{symbol}`
-💰 *Price:* `{price}`
-⏰ *Time:* `{time_str}`
-📊 *Resistance:* `{resistance}` (Tested {resistance_touches}x)
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+    resistance = df['close'][-25:-4].max()
+    
+    # Use live price if available, otherwise use last close
+    current_price = live_data[symbol]['price'] or last['close']
+    current_volume = live_data[symbol]['volume'] or last['volume']
+    
+    entry_price = current_price
+    entry_time = datetime.now().strftime('%Y-%m-%d %H:%M')
 
-🎯 *Targets (Measured Move):*
-├ TP1: {tp1} (+{round((tp1/resistance-1)*100, 2)}%)
-├ TP2: {tp2} (+{round((tp2/resistance-1)*100, 2)}%)
-└ TP3: {tp3} (+{round((tp3/resistance-1)*100, 2)}%)
+    # ✅ Accumulation zone near horizontal resistance
+    price_was_under_resistance = prev['close'] < resistance * 0.995
+    price_now_above = entry_price > resistance
+    accumulation_range_ok = df['close'][-25:-4].max() - df['close'][-25:-4].min() < resistance * 0.08
 
-🛡 *Stop Loss:* {sl} (-{round((1-sl/price)*100, 2)}%)
+    # ✅ MA compression breakout logic
+    ma_compression = abs(last['MA7'] - last['MA25']) < resistance * 0.005 and \
+                     abs(last['MA25'] - last['MA99']) < resistance * 0.01
+    ma_cross_up = prev['MA7'] < prev['MA25'] and last['MA7'] > last['MA25']
+    rsi_ok = 45 < last['RSI'] < 70
+    bb_touch = entry_price > prev['bb_upper']
+    volume_spike = current_volume > df['volume'].mean() * 1.2
 
-📊 *Technical Analysis Summary:*
-1. *Breakout Pattern:* Resistance at `{round(resistance, 4)}` broken with strong volume.
-2. *Breakout Candle:* Large bullish candle above resistance confirms move.
-3. *Measured Move:* Estimated target zone `{round(resistance * 1.07, 4)}` (+7%) from breakout.
-4. *Volume Confirmation:* Volume spike detected (1.5x above average).
-5. *MA Alignment:* MA(7) > MA(25) > MA(99) → Bullish trend confirmation.
+    # Confirm all
+    conditions = [
+        price_was_under_resistance, price_now_above,
+        ma_cross_up, ma_compression, rsi_ok,
+        bb_touch, volume_spike, accumulation_range_ok
+    ]
+    if all(conditions):
+        return True, entry_price, entry_time, resistance
+    else:
+        return False, None, None, None
 
-📉 *Indicators Used:*
-- MA(7): Yellow
-- MA(25): Pink
-- MA(99): Purple
-- RSI(14)
-- VWAP(20)
-- Volume Bars
+def format_signal(symbol, price, time_str, resistance):
+    tp1 = round(price * 1.01, 5)
+    tp2 = round(price * 1.02, 5)
+    tp3 = round(price * 1.03, 5)
+    sl = round(resistance * 0.995, 5)
+    return f"""🚀 *MA Compression Breakout Detected!*
 
-⏳ *Next Scan in {INTERVAL_MINUTES} minutes*
+🪙 *Symbol:* `{symbol}`
+📍 *Entry Price:* `{price}`
+🕒 *Entry Time:* `{time_str}`
+📊 *Pattern:* MA Compression + Volume Break + BB Spike
+
+🎯 *Take Profit:*
+• TP1 = {tp1}
+• TP2 = {tp2}
+• TP3 = {tp3}
+
+🛡 *Stop Loss:* {sl}
+⏰ *Timeframe:* {TIMEFRAME.upper()}
 """
 
-def send_telegram_alert(msg):
+def send_telegram(msg):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         'chat_id': CHAT_ID,
@@ -514,51 +531,43 @@ def send_telegram_alert(msg):
         'parse_mode': 'Markdown'
     }
     try:
-        response = requests.post(url, data=payload, timeout=10)
-        response.raise_for_status()
-        return True
+        requests.post(url, data=payload)
     except Exception as e:
-        logger.error(f"Failed to send Telegram alert: {e}")
-        return False
+        print("Telegram Error:", e)
 
-def scan_symbols(symbols):
-    signals_found = 0
-    for symbol in symbols:
+def scan_all():
+    print("📡 Scanning 1H MA Breakouts...\n")
+    for i, symbol in enumerate(symbols_to_check, 1):
+        print(f"🔍 Checking {symbol} ({i}/{len(symbols_to_check)})...")
         df = get_klines(symbol)
-        if df is None or len(df) < 50:
+        if df is None:
             continue
-        valid, price, time_str, res, tp1, tp2, tp3, sl, resistance_touches = detect_breakout(df, symbol)
+
+        valid, price, time_str, resistance = detect_breakout_method(df, symbol)
         if valid:
-            msg = format_breakout_alert(symbol, price, time_str, res, tp1, tp2, tp3, sl, resistance_touches)
-            if send_telegram_alert(msg):
-                signals_found += 1
-                logger.info(f"Breakout alert sent for {symbol}")
-    return signals_found
+            msg = format_signal(symbol, price, time_str, resistance)
+            send_telegram(msg)
+            print(f"✅ SIGNAL SENT: {symbol}")
 
-def run_continuous_scanner():
-    last_symbol_refresh = datetime.now()
-    symbols = get_active_symbols()
-
+def main():
+    # Start WebSocket connections
+    start_websocket()
+    
+    # Initial scan
+    scan_all()
+    
+    # 🔁 Loop
     while True:
-        try:
-            if (datetime.now() - last_symbol_refresh) > timedelta(hours=SYMBOL_REFRESH_HOURS):
-                symbols = get_active_symbols()
-                last_symbol_refresh = datetime.now()
-                logger.info(f"Refreshed symbol list: {len(symbols)} symbols")
-
-            start_time = datetime.now()
-            logger.info(f"Starting scan at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            found = scan_symbols(symbols)
-            logger.info(f"Scan complete. {found} breakouts found.")
-
-            elapsed = (datetime.now() - start_time).total_seconds()
-            time.sleep(max(0, INTERVAL_MINUTES * 60 - elapsed))
-        except KeyboardInterrupt:
-            logger.info("Scanner stopped by user.")
-            break
-        except Exception as e:
-            logger.error(f"Unexpected error: {e}")
-            time.sleep(60)
+        print(f"\n⏱ Waiting {INTERVAL_SECONDS // 60} min for next scan...\n")
+        time.sleep(INTERVAL_SECONDS)
+        scan_all()
 
 if __name__ == "__main__":
-    run_continuous_scanner()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+        twm.stop()
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        twm.stop()
