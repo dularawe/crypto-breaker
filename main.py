@@ -789,4 +789,4 @@ while True:
     
     # Wait before next full cycle
     print(f"Completed full scan at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    time.sleep(60 * 15)  # Wait 15 minutes before next scan
+    time.sleep(60 * 30)  # Wait 15 minutes before next scan
