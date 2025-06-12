@@ -13,7 +13,7 @@ from ta.volume import VolumeWeightedAveragePrice
 API_KEY = ''
 API_SECRET = ''
 BOT_TOKEN = '7532851212:AAHOVx1esNWrtk2SJbBQHCXMae7Y-dKJR5o'
-CHAT_ID = '7771111812'
+CHAT_ID = '6494844619'
 INTERVAL = Client.KLINE_INTERVAL_1HOUR
 LIMIT = 1000  # Increased for better trend analysis
 
