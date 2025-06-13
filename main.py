@@ -15,7 +15,8 @@ API_SECRET = ''
 BOT_TOKEN = '7532851212:AAHOVx1esNWrtk2SJbBQHCXMae7Y-dKJR5o'
 CHAT_IDS = [
     '6494844619',  # First chat ID
-    '1265683834'   # Second chat ID
+    '1265683834',
+    '7771111812'# Second chat ID
     # Add more chat IDs as needed with commas
 ]
 INTERVAL = Client.KLINE_INTERVAL_1HOUR
