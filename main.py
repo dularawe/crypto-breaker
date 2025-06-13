@@ -13,7 +13,11 @@ from ta.volume import VolumeWeightedAveragePrice
 API_KEY = ''
 API_SECRET = ''
 BOT_TOKEN = '7532851212:AAHOVx1esNWrtk2SJbBQHCXMae7Y-dKJR5o'
-CHAT_ID = '6494844619'
+CHAT_IDS = [
+    '6494844619',  # First chat ID
+    '1265683834'   # Second chat ID
+    # Add more chat IDs as needed with commas
+]
 INTERVAL = Client.KLINE_INTERVAL_1HOUR
 LIMIT = 1000  # Increased for better trend analysis
 
@@ -391,14 +395,20 @@ symbols_to_check = [
 client = Client(API_KEY, API_SECRET)
 last_alerts = {}
 
-def send_telegram_message(text):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    data = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}
-    try:
-        requests.post(url, data=data)
-    except Exception as e:
-        print("Telegram Error:", e)
-
+def send_telegram_message(text: str) -> None:
+    """Broadcast *text* to every CHAT_ID in CHAT_IDS with Markdown parsing."""
+    for chat_id in CHAT_IDS:
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+        }
+        try:
+            requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data=payload, timeout=10)
+        except Exception as exc:
+            print(f"[Telegram] Failed to send to {chat_id}: {exc}")
+            
 def fetch_binance_data(symbol):
     try:
         klines = client.get_klines(symbol=symbol, interval=INTERVAL, limit=LIMIT)
