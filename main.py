@@ -4,10 +4,11 @@ import requests
 import time
 from datetime import datetime, timedelta
 from binance.client import Client
-from ta.trend import EMAIndicator, ADXIndicator, MACD
-from ta.momentum import RSIIndicator, StochasticOscillator
-from ta.volatility import AverageTrueRange, BollingerBands
-from ta.volume import VolumeWeightedAveragePrice
+from ta.trend import EMAIndicator, ADXIndicator, MACD, IchimokuIndicator
+from ta.momentum import RSIIndicator, StochasticOscillator, AwesomeOscillatorIndicator
+from ta.volatility import AverageTrueRange, BollingerBands, KeltnerChannel
+from ta.volume import VolumeWeightedAveragePrice, OnBalanceVolumeIndicator
+from ta.others import DailyReturnIndicator, CumulativeReturnIndicator
 
 # === CONFIG ===
 API_KEY = ''
@@ -16,12 +17,12 @@ BOT_TOKEN = '7532851212:AAHOVx1esNWrtk2SJbBQHCXMae7Y-dKJR5o'
 CHAT_IDS = [
     '6494844619',  # First chat ID
     '1265683834',
-    '7771111812'# Second chat ID
-    # Add more chat IDs as needed with commas
+    '7771111812'   # Second chat ID
 ]
 INTERVAL = Client.KLINE_INTERVAL_1HOUR
-LIMIT = 10000  # Increased for better trend analysis
+LIMIT = 3000  # Optimized for better performance
 
+# Enhanced symbol list with categorization
 symbols_to_check = [
     "APTUSDT",
     "RPLUSDT",
@@ -395,6 +396,7 @@ symbols_to_check = [
 
 client = Client(API_KEY, API_SECRET)
 last_alerts = {}
+early_warnings = {}
 
 def send_telegram_message(text: str) -> None:
     """Broadcast *text* to every CHAT_ID in CHAT_IDS with Markdown parsing."""
@@ -409,7 +411,7 @@ def send_telegram_message(text: str) -> None:
             requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data=payload, timeout=10)
         except Exception as exc:
             print(f"[Telegram] Failed to send to {chat_id}: {exc}")
-            
+
 def fetch_binance_data(symbol):
     try:
         klines = client.get_klines(symbol=symbol, interval=INTERVAL, limit=LIMIT)
@@ -432,39 +434,249 @@ def calculate_fibonacci_levels(high, low):
         '0.382': high - 0.382 * diff,
         '0.5': high - 0.5 * diff,
         '0.618': high - 0.618 * diff,
-        '0.786': high - 0.786 * diff
+        '0.786': high - 0.786 * diff,
+        '1.0': high,
+        '1.272': high + 0.272 * diff,
+        '1.618': high + 0.618 * diff
     }
 
-def calculate_support_resistance(df):
-    # Calculate recent support and resistance using fractal analysis
-    sr_levels = []
+def calculate_support_resistance(df, window=50):
+    """Improved S/R detection using clustering and volume profile"""
+    levels = []
+    
+    # Fractal levels
     for i in range(2, len(df)-2):
+        # Support fractals
         if df['low'].iloc[i] < df['low'].iloc[i-1] and df['low'].iloc[i] < df['low'].iloc[i-2] and \
            df['low'].iloc[i] < df['low'].iloc[i+1] and df['low'].iloc[i] < df['low'].iloc[i+2]:
-            sr_levels.append(df['low'].iloc[i])
+            levels.append((df['low'].iloc[i], df['volume'].iloc[i]))
+        # Resistance fractals
         elif df['high'].iloc[i] > df['high'].iloc[i-1] and df['high'].iloc[i] > df['high'].iloc[i-2] and \
              df['high'].iloc[i] > df['high'].iloc[i+1] and df['high'].iloc[i] > df['high'].iloc[i+2]:
-            sr_levels.append(df['high'].iloc[i])
+            levels.append((df['high'].iloc[i], df['volume'].iloc[i]))
     
-    # Cluster nearby levels
-    clusters = []
-    for level in sorted(sr_levels):
-        if not clusters:
-            clusters.append([level])
-        else:
-            last_cluster = clusters[-1]
-            if abs(level - np.mean(last_cluster)) < 0.005 * np.mean(last_cluster):  # 0.5% threshold
-                last_cluster.append(level)
-            else:
+    # Pivot points
+    pivot = (df['high'].iloc[-1] + df['low'].iloc[-1] + df['close'].iloc[-1]) / 3
+    levels.append((pivot, np.mean(df['volume'].iloc[-3:])))
+    
+    # Volume-weighted clustering
+    if levels:
+        levels_sorted = sorted(levels, key=lambda x: x[0])
+        clusters = []
+        
+        for level in levels_sorted:
+            if not clusters:
                 clusters.append([level])
+            else:
+                last_cluster = clusters[-1]
+                last_avg = sum(l[0] for l in last_cluster)/len(last_cluster)
+                if abs(level[0] - last_avg) < 0.01 * last_avg:  # 1% threshold
+                    last_cluster.append(level)
+                else:
+                    clusters.append([level])
+        
+        # Calculate cluster strength (volume-weighted)
+        sr_points = []
+        for cluster in clusters:
+            total_volume = sum(v for _, v in cluster)
+            weighted_price = sum(p*v for p, v in cluster) / total_volume
+            sr_points.append((weighted_price, total_volume))
+        
+        # Sort by strength and return top 5
+        sr_points.sort(key=lambda x: x[1], reverse=True)
+        return [x[0] for x in sr_points[:5]]
     
-    # Return strongest support/resistance levels (most touches)
-    sr_points = [np.mean(cluster) for cluster in clusters]
-    sr_strength = [len(cluster) for cluster in clusters]
+    return []
+
+def detect_early_patterns(df):
+    """Detect emerging patterns before they fully form"""
+    patterns = {
+        'potential_bullish': False,
+        'potential_bearish': False,
+        'pattern_type': None,
+        'expected_confirm_time': None,
+        'potential_entry': None
+    }
     
-    # Sort by strength and return top 3
-    sorted_indices = np.argsort(sr_strength)[::-1]
-    return [sr_points[i] for i in sorted_indices[:3]]
+    # Check for emerging bullish patterns
+    # 1. Potential Inverse Head & Shoulders
+    if len(df) > 50:
+        left_low = df['low'].iloc[-20:-15].min()
+        head_low = df['low'].iloc[-15:-5].min()
+        right_low = df['low'].iloc[-5:].min()
+        
+        if (left_low < head_low and right_low < head_low and 
+            abs(left_low - right_low) < 0.01 * head_low and
+            df['close'].iloc[-1] > (left_low + head_low + right_low)/3):
+            patterns['potential_bullish'] = True
+            patterns['pattern_type'] = "Inverse Head & Shoulders"
+            patterns['expected_confirm_time'] = df.index[-1] + timedelta(hours=3)
+            patterns['potential_entry'] = df['high'].iloc[-15:-5].max()  # Neckline
+    
+    # 2. Potential Bull Flag
+    if len(df) > 30:
+        flag_pole = df['high'].iloc[-20] - df['low'].iloc[-20]
+        flag_high = df['high'].iloc[-20:-5].max()
+        flag_low = df['low'].iloc[-20:-5].min()
+        
+        if (flag_pole > 0.05 * df['close'].iloc[-20] and  # Significant move
+            (flag_high - flag_low) < 0.5 * flag_pole and  # Tight consolidation
+            df['volume'].iloc[-20:-5].mean() < df['volume'].iloc[-25:-20].mean() * 0.7 and  # Volume contraction
+            df['close'].iloc[-1] > flag_high):  # Breaking out
+            patterns['potential_bullish'] = True
+            patterns['pattern_type'] = "Bull Flag"
+            patterns['expected_confirm_time'] = df.index[-1] + timedelta(hours=2)
+            patterns['potential_entry'] = flag_high
+    
+    # Check for emerging bearish patterns
+    # 1. Potential Head & Shoulders
+    if len(df) > 50:
+        left_high = df['high'].iloc[-20:-15].max()
+        head_high = df['high'].iloc[-15:-5].max()
+        right_high = df['high'].iloc[-5:].max()
+        
+        if (left_high > head_high and right_high > head_high and 
+            abs(left_high - right_high) < 0.01 * head_high and
+            df['close'].iloc[-1] < (left_high + head_high + right_high)/3):
+            patterns['potential_bearish'] = True
+            patterns['pattern_type'] = "Head & Shoulders"
+            patterns['expected_confirm_time'] = df.index[-1] + timedelta(hours=3)
+            patterns['potential_entry'] = df['low'].iloc[-15:-5].min()  # Neckline
+    
+    # 2. Potential Bear Flag
+    if len(df) > 30:
+        flag_pole = df['high'].iloc[-20] - df['low'].iloc[-20]
+        flag_high = df['high'].iloc[-20:-5].max()
+        flag_low = df['low'].iloc[-20:-5].min()
+        
+        if (flag_pole > 0.05 * df['close'].iloc[-20] and  # Significant move
+            (flag_high - flag_low) < 0.5 * flag_pole and  # Tight consolidation
+            df['volume'].iloc[-20:-5].mean() < df['volume'].iloc[-25:-20].mean() * 0.7 and  # Volume contraction
+            df['close'].iloc[-1] < flag_low):  # Breaking down
+            patterns['potential_bearish'] = True
+            patterns['pattern_type'] = "Bear Flag"
+            patterns['expected_confirm_time'] = df.index[-1] + timedelta(hours=2)
+            patterns['potential_entry'] = flag_low
+    
+    return patterns
+
+def predict_early_entry(df):
+    """Predict future entry points before signals fully form"""
+    early_signals = {
+        'potential_entries': [],
+        'next_analysis_time': datetime.now() + timedelta(minutes=15)
+    }
+    
+    # Get the emerging patterns
+    patterns = detect_early_patterns(df)
+    
+    # Calculate key levels
+    sr_levels = calculate_support_resistance(df)
+    fib_levels = calculate_fibonacci_levels(df['high'].max(), df['low'].min())
+    
+    # Check for potential bullish entries
+    if patterns['potential_bullish']:
+        entry_info = {
+            'type': 'BUY',
+            'pattern': patterns['pattern_type'],
+            'potential_entry': patterns['potential_entry'],
+            'confirm_time': patterns['expected_confirm_time'],
+            'stop_loss': patterns['potential_entry'] * 0.99,  # 1% below entry
+            'take_profit': patterns['potential_entry'] * 1.03,  # 3% above
+            'confidence': "Medium",
+            'key_levels': {
+                'support': min(sr_levels) if sr_levels else None,
+                'resistance': max(sr_levels) if sr_levels else None,
+                'fib_618': fib_levels['0.618']
+            }
+        }
+        early_signals['potential_entries'].append(entry_info)
+    
+    # Check for potential bearish entries
+    if patterns['potential_bearish']:
+        entry_info = {
+            'type': 'SELL',
+            'pattern': patterns['pattern_type'],
+            'potential_entry': patterns['potential_entry'],
+            'confirm_time': patterns['expected_confirm_time'],
+            'stop_loss': patterns['potential_entry'] * 1.01,  # 1% above entry
+            'take_profit': patterns['potential_entry'] * 0.97,  # 3% below
+            'confidence': "Medium",
+            'key_levels': {
+                'support': min(sr_levels) if sr_levels else None,
+                'resistance': max(sr_levels) if sr_levels else None,
+                'fib_618': fib_levels['0.618']
+            }
+        }
+        early_signals['potential_entries'].append(entry_info)
+    
+    # Check for moving average convergences
+    ema20 = df['EMA20'].iloc[-1]
+    ema50 = df['EMA50'].iloc[-1]
+    ema100 = df['EMA100'].iloc[-1]
+    
+    # Potential Golden Cross
+    if (ema20 > ema50 and 
+        abs(ema20 - ema50) < 0.005 * ema50 and  # Within 0.5%
+        df['EMA20'].iloc[-2] < df['EMA50'].iloc[-2]):  # Was below
+        expected_time = df.index[-1] + timedelta(hours=2)
+        entry_info = {
+            'type': 'BUY',
+            'pattern': "Potential Golden Cross",
+            'potential_entry': df['close'].iloc[-1],
+            'confirm_time': expected_time,
+            'stop_loss': df['low'].iloc[-5:].min(),
+            'take_profit': df['close'].iloc[-1] * 1.02,
+            'confidence': "High",
+            'key_levels': {
+                'support': min(sr_levels) if sr_levels else None,
+                'resistance': max(sr_levels) if sr_levels else None
+            }
+        }
+        early_signals['potential_entries'].append(entry_info)
+    
+    # Potential Death Cross
+    if (ema20 < ema50 and 
+        abs(ema20 - ema50) < 0.005 * ema50 and  # Within 0.5%
+        df['EMA20'].iloc[-2] > df['EMA50'].iloc[-2]):  # Was above
+        expected_time = df.index[-1] + timedelta(hours=2)
+        entry_info = {
+            'type': 'SELL',
+            'pattern': "Potential Death Cross",
+            'potential_entry': df['close'].iloc[-1],
+            'confirm_time': expected_time,
+            'stop_loss': df['high'].iloc[-5:].max(),
+            'take_profit': df['close'].iloc[-1] * 0.98,
+            'confidence': "High",
+            'key_levels': {
+                'support': min(sr_levels) if sr_levels else None,
+                'resistance': max(sr_levels) if sr_levels else None
+            }
+        }
+        early_signals['potential_entries'].append(entry_info)
+    
+    return early_signals
+
+def format_early_entry_message(symbol, entry_info):
+    msg = f"""
+🔍 *POTENTIAL ENTRY ALERT* — `{symbol}`
+📊 *Pattern Type*: {entry_info['pattern']}
+🕒 *Expected Confirmation*: {entry_info['confirm_time'].strftime('%Y-%m-%d %H:%M')}
+📈 *Direction*: {'🟢 BUY' if entry_info['type'] == 'BUY' else '🔴 SELL'}
+
+🎯 Potential Entry: {entry_info['potential_entry']}
+🛑 Suggested Stop: {entry_info['stop_loss']}
+💰 Initial Target: {entry_info['take_profit']}
+📌 Confidence: {entry_info['confidence']}
+
+📊 Key Levels:
+   - Support: {entry_info['key_levels']['support'] if entry_info['key_levels']['support'] else 'N/A'}
+   - Resistance: {entry_info['key_levels']['resistance'] if entry_info['key_levels']['resistance'] else 'N/A'}
+   {f"- Fib 0.618: {entry_info['key_levels']['fib_618']:.4f}" if 'fib_618' in entry_info['key_levels'] else ''}
+
+⚠️ *This is an EARLY WARNING* - Wait for confirmation at the expected time
+"""
+    return msg.strip()
 
 def predict_signal(df):
     # Calculate indicators
@@ -770,32 +982,50 @@ def format_message(symbol, result):
 
 # Main loop
 while True:
+    print(f"\n=== Starting new scan at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
+    
     for symbol in symbols_to_check:
         try:
+            start_time = time.time()
             df = fetch_binance_data(symbol)
-            if df is None or len(df) < 200:
-                continue
-
-            result = predict_signal(df)
-            msg = format_message(symbol, result)
             
-            # Only send alerts for high confidence signals or if the status changed significantly
+            if df is None or len(df) < 200:
+                print(f"[{symbol}] Skipped - insufficient data")
+                continue
+                
+            # Get regular signals
+            result = predict_signal(df)
+            
+            # Get early entry predictions
+            early_entries = predict_early_entry(df)
+            
+            processing_time = time.time() - start_time
+            
+            print(f"[{symbol}] {result['signal']} ({processing_time:.2f}s) - {result.get('confidence_score', '')}")
+            
+            # Send early entry alerts if they're new
+            for entry in early_entries['potential_entries']:
+                entry_key = f"{symbol}_{entry['pattern']}_{entry['confirm_time'].timestamp()}"
+                
+                if entry_key not in early_warnings:
+                    msg = format_early_entry_message(symbol, entry)
+                    send_telegram_message(msg)
+                    early_warnings[entry_key] = entry
+                    print(f"[EARLY ENTRY] {symbol} {entry['type']} potential detected")
+            
+            # Send regular signals if they're strong and new
             if result['signal'] in ["BUY", "SELL"]:
                 if symbol not in last_alerts or last_alerts[symbol]['signal'] != result['signal']:
+                    msg = format_message(symbol, result)
                     send_telegram_message(msg)
-                    print(f"[ALERT] {symbol} {result['signal']} signal detected")
                     last_alerts[symbol] = result
-            else:
-                if symbol not in last_alerts:
-                    last_alerts[symbol] = {'signal': "HOLD", 'time': datetime.now()}
-                print(f"[{symbol}] Monitoring - no clear signal")
-            
-            time.sleep(1.5)  # Rate limit
+                    
+            time.sleep(0.5)  # Rate limit
             
         except Exception as e:
-            print(f"Error processing {symbol}: {str(e)}")
+            print(f"[{symbol}] Error: {str(e)}")
             time.sleep(5)
     
-    # Wait before next full cycle
-    print(f"Completed full scan at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    time.sleep(60 * 30)  # Wait 15 minutes before next scan
+    print(f"\n=== Completed full scan at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
+    print("Waiting for next scan in 30 minutes...")
+    time.sleep(60 * 30)  # Wait 30 minutes between full scans
