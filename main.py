@@ -488,6 +488,165 @@ def calculate_support_resistance(df, window=50):
     
     return []
 
+def detect_triangle_patterns(df):
+    """Detect triangle chart patterns (ascending, descending, symmetrical)"""
+    patterns = {
+        'ascending_triangle': False,
+        'descending_triangle': False,
+        'symmetrical_triangle': False,
+        'breakout_price': None,
+        'expected_direction': None,
+        'pattern_height': None
+    }
+    
+    if len(df) < 30:  # Need enough data to detect patterns
+        return patterns
+    
+    # Look for the last 20 candles to detect patterns
+    highs = df['high'].iloc[-20:]
+    lows = df['low'].iloc[-20:]
+    
+    # Find peaks and troughs
+    peaks, troughs = [], []
+    for i in range(1, len(highs)-1):
+        if highs.iloc[i] > highs.iloc[i-1] and highs.iloc[i] > highs.iloc[i+1]:
+            peaks.append(highs.iloc[i])
+        if lows.iloc[i] < lows.iloc[i-1] and lows.iloc[i] < lows.iloc[i+1]:
+            troughs.append(lows.iloc[i])
+    
+    if len(peaks) < 2 or len(troughs) < 2:
+        return patterns
+    
+    # Calculate trendlines
+    try:
+        # Upper trendline (resistance)
+        upper_slope = (peaks[-1] - peaks[-2]) / (len(highs) / 2)
+        # Lower trendline (support)
+        lower_slope = (troughs[-1] - troughs[-2]) / (len(lows) / 2)
+        
+        # Ascending Triangle (flat top, rising bottom)
+        if abs(upper_slope) < 0.001 and lower_slope > 0.001:
+            patterns['ascending_triangle'] = True
+            patterns['breakout_price'] = peaks[-1]  # Resistance level
+            patterns['expected_direction'] = 'UP'
+            patterns['pattern_height'] = peaks[-1] - troughs[-1]
+        
+        # Descending Triangle (flat bottom, falling top)
+        elif abs(lower_slope) < 0.001 and upper_slope < -0.001:
+            patterns['descending_triangle'] = True
+            patterns['breakout_price'] = troughs[-1]  # Support level
+            patterns['expected_direction'] = 'DOWN'
+            patterns['pattern_height'] = peaks[-1] - troughs[-1]
+        
+        # Symmetrical Triangle (both trendlines converging)
+        elif (upper_slope < -0.001 and lower_slope > 0.001) or (upper_slope > 0.001 and lower_slope < -0.001):
+            patterns['symmetrical_triangle'] = True
+            patterns['breakout_price'] = (peaks[-1] + troughs[-1]) / 2  # Midpoint
+            patterns['pattern_height'] = peaks[-1] - troughs[-1]
+            
+            # Determine expected direction based on volume and momentum
+            if df['volume'].iloc[-5:].mean() > df['volume'].iloc[-10:-5].mean():
+                patterns['expected_direction'] = 'UP' if df['close'].iloc[-1] > df['close'].iloc[-5] else 'DOWN'
+            else:
+                patterns['expected_direction'] = None
+    
+    except Exception as e:
+        print(f"Error calculating triangle patterns: {e}")
+    
+    return patterns
+
+def detect_head_shoulders(df):
+    """Detect head and shoulders and inverse head and shoulders patterns"""
+    patterns = {
+        'head_shoulders': False,
+        'inverse_head_shoulders': False,
+        'neckline': None,
+        'confirmation_price': None,
+        'target': None
+    }
+    
+    if len(df) < 50:  # Need enough data to detect patterns
+        return patterns
+    
+    # Look for the last 30 candles to detect patterns
+    highs = df['high'].iloc[-30:]
+    lows = df['low'].iloc[-30:]
+    
+    # Find peaks and troughs
+    peaks, troughs = [], []
+    for i in range(1, len(highs)-1):
+        if highs.iloc[i] > highs.iloc[i-1] and highs.iloc[i] > highs.iloc[i+1]:
+            peaks.append((i, highs.iloc[i]))
+        if lows.iloc[i] < lows.iloc[i-1] and lows.iloc[i] < lows.iloc[i+1]:
+            troughs.append((i, lows.iloc[i]))
+    
+    if len(peaks) < 3 or len(troughs) < 2:
+        return patterns
+    
+    # Sort peaks by height (descending)
+    peaks_sorted = sorted(peaks, key=lambda x: -x[1])
+    
+    # Head and Shoulders pattern (bearish)
+    if len(peaks_sorted) >= 3:
+        left_shoulder = peaks_sorted[1]
+        head = peaks_sorted[0]
+        right_shoulder = peaks_sorted[2]
+        
+        # Check if shoulders are roughly equal and lower than head
+        if (abs(left_shoulder[1] - right_shoulder[1]) < 0.01 * head[1] and
+            left_shoulder[0] < head[0] < right_shoulder[0] and
+            left_shoulder[1] < head[1] and right_shoulder[1] < head[1]):
+            
+            # Find the neckline (lowest point between left shoulder and right shoulder)
+            neckline = min(lows[left_shoulder[0]:right_shoulder[0]])
+            patterns['head_shoulders'] = True
+            patterns['neckline'] = neckline
+            patterns['confirmation_price'] = neckline
+            patterns['target'] = head[1] - (neckline - head[1])  # Head height projected down
+    
+    # Inverse Head and Shoulders pattern (bullish)
+    troughs_sorted = sorted(troughs, key=lambda x: x[1])
+    if len(troughs_sorted) >= 3:
+        left_shoulder = troughs_sorted[1]
+        head = troughs_sorted[0]
+        right_shoulder = troughs_sorted[2]
+        
+        # Check if shoulders are roughly equal and higher than head
+        if (abs(left_shoulder[1] - right_shoulder[1]) < 0.01 * head[1] and
+            left_shoulder[0] < head[0] < right_shoulder[0] and
+            left_shoulder[1] > head[1] and right_shoulder[1] > head[1]):
+            
+            # Find the neckline (highest point between left shoulder and right shoulder)
+            neckline = max(highs[left_shoulder[0]:right_shoulder[0]])
+            patterns['inverse_head_shoulders'] = True
+            patterns['neckline'] = neckline
+            patterns['confirmation_price'] = neckline
+            patterns['target'] = head[1] + (head[1] - neckline)  # Head height projected up
+    
+    return patterns
+
+def check_three_touch_confirmation(df, entry_price, direction):
+    """Check if price has touched a level 3 times after entry"""
+    if len(df) < 5:
+        return False
+    
+    touches = 0
+    recent_data = df.iloc[-5:]  # Check last 5 candles
+    
+    for i in range(len(recent_data)):
+        if direction == 'LONG':
+            # For long positions, check if price dipped to near entry but didn't break it
+            if (recent_data['low'].iloc[i] <= entry_price * 1.005 and 
+                recent_data['low'].iloc[i] >= entry_price * 0.995):
+                touches += 1
+        else:  # SHORT
+            # For short positions, check if price rose to near entry but didn't break it
+            if (recent_data['high'].iloc[i] >= entry_price * 0.995 and 
+                recent_data['high'].iloc[i] <= entry_price * 1.005):
+                touches += 1
+    
+    return touches >= 3
+
 def detect_early_patterns(df):
     """Detect emerging patterns before they fully form"""
     patterns = {
@@ -730,6 +889,10 @@ def predict_signal(df):
     below_vwap = latest_close < vwap
     above_vwap = latest_close > vwap
     
+    # Pattern detection
+    triangle_patterns = detect_triangle_patterns(df)
+    hs_patterns = detect_head_shoulders(df)
+    
     # ===== BEARISH CONDITIONS (SELL/SHORT) =====
     squeeze = df['bb_width'].iloc[-1] < df['bb_width'].rolling(100).mean().iloc[-1] * 0.6
     momentum_down = df['close'].iloc[-1] < df['close'].iloc[-5]
@@ -777,6 +940,12 @@ def predict_signal(df):
     if adx > 25: bearish_confidence += 15
     if below_vwap: bearish_confidence += 10
     
+    # Add pattern-based conditions
+    if triangle_patterns['descending_triangle'] and df['close'].iloc[-1] < triangle_patterns['breakout_price']:
+        bearish_confidence += 25
+    if hs_patterns['head_shoulders'] and df['close'].iloc[-1] < hs_patterns['confirmation_price']:
+        bearish_confidence += 30
+    
     bullish_confidence = 0
     if resistance_break: bullish_confidence += 30
     if volume_spike: bullish_confidence += 20
@@ -788,6 +957,14 @@ def predict_signal(df):
     if macd_up: bullish_confidence += 10
     if adx > 25: bullish_confidence += 15
     if above_vwap: bullish_confidence += 10
+    
+    # Add pattern-based conditions
+    if triangle_patterns['ascending_triangle'] and df['close'].iloc[-1] > triangle_patterns['breakout_price']:
+        bullish_confidence += 25
+    if triangle_patterns['symmetrical_triangle'] and triangle_patterns['expected_direction'] == 'UP':
+        bullish_confidence += 20
+    if hs_patterns['inverse_head_shoulders'] and df['close'].iloc[-1] > hs_patterns['confirmation_price']:
+        bullish_confidence += 30
     
     # Cap at 100
     bearish_confidence = min(bearish_confidence, 100)
@@ -804,7 +981,7 @@ def predict_signal(df):
         tp2 = round(entry_price - 2 * atr, 4)
         tp3 = round(entry_price - 3 * atr, 4)
         
-        return {
+        result = {
             "signal": "SELL",
             "entry_price": entry_price,
             "entry_time": df.index[-1],
@@ -824,9 +1001,16 @@ def predict_signal(df):
                 "ma_trend": "Bearish" if ma_bearish else "Neutral",
                 "ma_cross": "Death Cross" if ma_cross_death else "None",
                 "squeeze": squeeze,
-                "vwap_position": "Below" if below_vwap else "Above"
+                "vwap_position": "Below" if below_vwap else "Above",
+                "chart_pattern": "Descending Triangle" if triangle_patterns['descending_triangle'] else 
+                                "Head & Shoulders" if hs_patterns['head_shoulders'] else "None"
             }
         }
+        
+        # Add 3-touch confirmation check
+        result['three_touch_confirmed'] = check_three_touch_confirmation(df, entry_price, 'SHORT')
+        
+        return result
     
     elif bullish_confidence >= 75:
         # BUY/LONG signal
@@ -836,7 +1020,7 @@ def predict_signal(df):
         tp2 = round(entry_price + 2 * atr, 4)
         tp3 = round(entry_price + 3 * atr, 4)
         
-        return {
+        result = {
             "signal": "BUY",
             "entry_price": entry_price,
             "entry_time": df.index[-1],
@@ -856,9 +1040,17 @@ def predict_signal(df):
                 "ma_trend": "Bullish" if ma_bullish else "Neutral",
                 "ma_cross": "Golden Cross" if ma_cross_golden else "None",
                 "squeeze": squeeze,
-                "vwap_position": "Above" if above_vwap else "Below"
+                "vwap_position": "Above" if above_vwap else "Below",
+                "chart_pattern": "Ascending Triangle" if triangle_patterns['ascending_triangle'] else 
+                                "Inverse H&S" if hs_patterns['inverse_head_shoulders'] else 
+                                "Symmetrical Triangle" if triangle_patterns['symmetrical_triangle'] else "None"
             }
         }
+        
+        # Add 3-touch confirmation check
+        result['three_touch_confirmed'] = check_three_touch_confirmation(df, entry_price, 'LONG')
+        
+        return result
     
     else:
         # No clear signal
@@ -893,6 +1085,7 @@ def format_message(symbol, result):
 🔴 *SELL SIGNAL* — `{symbol}` 🔴
 📉 *Type*: Short Position (Bearish Breakdown)
 🔻 *Confidence*: {result['confidence_score']}
+{'✅ 3-Touch Confirmed' if result.get('three_touch_confirmed', False) else '⚠️ Awaiting Confirmation'}
 
 🎯 Entry Price: {result['entry_price']}
 ⏰ Entry Time: {result['entry_time'].strftime('%Y-%m-%d %H:%M')}
@@ -913,6 +1106,7 @@ def format_message(symbol, result):
    - MA Trend: {result['indicators']['ma_trend']} {result['indicators']['ma_cross']}
    - VWAP: {result['indicators']['vwap_position']}
    - BB Squeeze: {result['indicators']['squeeze']}
+   - Chart Pattern: {result['indicators']['chart_pattern']}
 
 📉 Support Levels: {', '.join(map(str, result['support_levels']))}
 📐 Fibonacci Levels:
@@ -929,6 +1123,7 @@ def format_message(symbol, result):
 🟢 *BUY SIGNAL* — `{symbol}` 🟢
 📈 *Type*: Long Position (Bullish Breakout)
 🔼 *Confidence*: {result['confidence_score']}
+{'✅ 3-Touch Confirmed' if result.get('three_touch_confirmed', False) else '⚠️ Awaiting Confirmation'}
 
 🎯 Entry Price: {result['entry_price']}
 ⏰ Entry Time: {result['entry_time'].strftime('%Y-%m-%d %H:%M')}
@@ -949,6 +1144,7 @@ def format_message(symbol, result):
    - MA Trend: {result['indicators']['ma_trend']} {result['indicators']['ma_cross']}
    - VWAP: {result['indicators']['vwap_position']}
    - BB Squeeze: {result['indicators']['squeeze']}
+   - Chart Pattern: {result['indicators']['chart_pattern']}
 
 📈 Resistance Levels: {', '.join(map(str, result['support_levels']))}
 📐 Fibonacci Levels:
@@ -1028,4 +1224,4 @@ while True:
     
     print(f"\n=== Completed full scan at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
     print("Waiting for next scan in 30 minutes...")
-    time.sleep(60 * 30)  # Wait 30 minutes between full scans
+    time.sleep(60 * 15)  # Wait 30 minutes between full scans
