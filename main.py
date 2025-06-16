@@ -20,7 +20,7 @@ CHAT_IDS = [
     # Add more chat IDs as needed with commas
 ]
 INTERVAL = Client.KLINE_INTERVAL_1HOUR
-LIMIT = 5000  # Increased for better trend analysis
+LIMIT = 6000  # Increased for better trend analysis
 
 symbols_to_check = [
     "APTUSDT",
