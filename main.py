@@ -786,11 +786,9 @@ while True:
                     print(f"[ALERT] {symbol} {result['signal']} signal detected")
                     last_alerts[symbol] = result
             else:
-                # Only send monitoring updates every 6 hours for the same status
-                if symbol not in last_alerts or datetime.now() - last_alerts[symbol]['time'] > timedelta(hours=6):
-                    send_telegram_message(msg)
-                    print(f"[{symbol}] Monitoring - no clear signal")
+                if symbol not in last_alerts:
                     last_alerts[symbol] = {'signal': "HOLD", 'time': datetime.now()}
+                print(f"[{symbol}] Monitoring - no clear signal")
             
             time.sleep(1.5)  # Rate limit
             
